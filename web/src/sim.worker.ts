@@ -6,9 +6,15 @@
  */
 import init, { XorDemo, version } from './wasm-pkg/silicon_wasm.js';
 import type { EngineKind, FromWorker, GateInfo, ToWorker } from './protocol';
+import { commandQueue } from './queue';
 
 const post = (msg: FromWorker, transfer: Transferable[] = []) =>
   (self as DedicatedWorkerGlobalScope).postMessage(msg, transfer);
+
+// Listen from the very first moment: commands that arrive while the WASM core
+// is still loading are queued and replayed, never dropped.
+const commands = commandQueue<ToWorker>();
+self.onmessage = (e: MessageEvent<ToWorker>) => commands.push(e.data);
 
 async function main(): Promise<void> {
   const wasm = await init();
@@ -29,15 +35,15 @@ async function main(): Promise<void> {
     post({ type: 'state', engine, wires }, [wires.buffer]);
   };
 
-  self.onmessage = (e: MessageEvent<ToWorker>) => {
-    if (e.data.type === 'setInputs') {
-      demo.set_inputs(e.data.a, e.data.b);
-      publish();
-    }
-  };
-
   post({ type: 'ready', version: version(), engine, gates });
   publish();
+
+  commands.start((command) => {
+    if (command.type === 'setInputs') {
+      demo.set_inputs(command.a, command.b);
+      publish();
+    }
+  });
 }
 
 main().catch((err: unknown) => post({ type: 'error', message: String(err) }));

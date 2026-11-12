@@ -121,5 +121,10 @@ window.addEventListener('keydown', (e) => {
 });
 window.addEventListener('resize', () => { resize(); dirty = true; });
 
+// Inputs can be preset from the URL (?a=1&b=0) so a link reproduces a state.
+const params = new URLSearchParams(location.search);
+if (params.get('a') === '1') toggle('a');
+if (params.get('b') === '1') toggle('b');
+
 resize();
 frame();

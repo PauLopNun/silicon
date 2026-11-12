@@ -6,3 +6,4 @@ web/src/wasm-pkg/
 .DS_Store
 test-results/
 playwright-report/
+.claude/settings.local.json
