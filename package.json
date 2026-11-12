@@ -1,0 +1,19 @@
+{
+  "name": "silicon",
+  "private": true,
+  "version": "0.0.1",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@12.18.0",
+  "scripts": {
+    "wasm": "wasm-pack build crates/wasm --release --target web --out-dir ../../web/src/wasm-pkg --out-name silicon_wasm --no-pack",
+    "dev": "pnpm wasm && pnpm --filter silicon-web dev",
+    "build": "pnpm wasm && pnpm --filter silicon-web build",
+    "preview": "pnpm --filter silicon-web preview",
+    "typecheck": "pnpm --filter silicon-web typecheck",
+    "test": "pnpm --filter silicon-web test",
+    "test:rust": "cargo test --workspace",
+    "test:all": "cargo test --workspace && pnpm test",
+    "lint": "cargo fmt --all --check && cargo clippy --workspace --all-targets -- -D warnings && pnpm typecheck"
+  }
+}

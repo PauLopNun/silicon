@@ -1,0 +1,17 @@
+[package]
+name = "silicon-machine"
+description = "Silicon computer: CPU + memory map + devices, engine-agnostic"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+silicon-hdl.workspace = true
+silicon-sim-gate.workspace = true
+silicon-sim-fast.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true

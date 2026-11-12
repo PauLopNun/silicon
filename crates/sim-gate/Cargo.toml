@@ -1,0 +1,15 @@
+[package]
+name = "silicon-sim-gate"
+description = "Silicon gate-level simulation engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+silicon-hdl.workspace = true
+
+[dev-dependencies]
+proptest.workspace = true
