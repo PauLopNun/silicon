@@ -7,12 +7,113 @@ Read this and `CLAUDE.md` at the start of every session.
 | Milestone | State |
 |---|---|
 | M0 — Plan and scaffold | **done** (2026-11-12) |
-| M1 — ISA and hardware design | **done** (2026-11-13), on branch `m1-isa-and-cpu`, not yet merged to `main` |
-| M2 — Simulation engines | next |
-| M3 — Toolchain and programs | — |
+| M1 — ISA and hardware design | **done** (2026-11-13), branch `m1-isa-and-cpu` |
+| M2 — Simulation engines | **done** (2026-11-13), branch `m2-machine` (on top of M1) |
+| M3 — Toolchain and programs | next |
 | M4 — 3D visualization | — |
 | M5 — Learning tools | — |
 | M6 — Polish and launch | — |
+
+Neither branch is merged to `main` yet, so CI (which runs on pull requests and
+on pushes to `main`) has not run on any of this. Everything below was verified
+locally on Windows.
+
+## M2 — what was done
+
+- **The whole computer** (`crates/machine`): `Board` implements the memory map
+  of `docs/ISA.md` §4 (ROM at 0, 128×64 framebuffer, device page, RAM on top)
+  with keys, a frame marker, a cycle-counting timer and a console. `Machine`
+  is a board plus both engines; `set_engine` hands the CPU over at any cycle.
+- **Speed measured in WebAssembly** (`pnpm bench`, Node 22 / V8), which is
+  what the budgets are about:
+
+  | Engine | Measured | Budget |
+  |---|---|---|
+  | fast | 279 M cycles/s | 5 M |
+  | gate (scalar evaluator) | 250 k cycles/s | 50 k |
+
+  The gate engine clears its budget five times over without the planned
+  bit-parallel rewrite, so that rewrite is deferred (ADR 0009).
+- **The real CPU in the browser** (`crates/wasm`, `web/`): the worker runs the
+  machine, paced against real time at a nominal 4 MHz clock; the page shows
+  the computer's screen, the registers, the real speed, and every gate of the
+  CPU lit by the wire it drives. Engines can be switched while the program
+  runs; pause, single-cycle step, reset and clock rate are controls.
+- **A demo program** (`machine::demo::stripes`): scrolling stripes that
+  reverse while the left key is held. Built with `silicon_isa::Program`, a
+  small label-resolving builder, because the assembler is M3.
+- The gate view already uses the M4 data path: one instanced quad per gate,
+  wire levels in a texture looked up by wire index in the shader. Only the
+  layout is provisional (a flat floorplan by block).
+
+### Verification
+
+- `cargo test --workspace`: 131 tests. `cargo fmt --check`, `cargo clippy -D
+  warnings` clean.
+- `pnpm typecheck`, `pnpm test` (36 Vitest tests), `pnpm build`: pass.
+- Lockstep now compares over 5 M cycles (4.5 M-cycle soak plus the rest), in
+  about 10 s. Random ROMs also run on the full memory map with keys changing
+  mid-run, and a machine that switches engines at random moments is compared
+  with one that never does.
+- The demo's framebuffer is checked byte for byte against a picture computed
+  in plain Rust, on both engines, with and without a key held.
+- The production build was loaded in headless Chrome and driven through the
+  DevTools protocol: page reaches ready, no console errors or warnings; fast
+  engine shows 4.00 MHz and 61 frames/s (4 MHz ÷ 65,536 cycles per frame =
+  61.0); gate engine shows ~269 kHz and 4.0 frames/s (269 k ÷ 65,536 = 4.1);
+  Step while paused advances the cycle counter by exactly one. Screenshot:
+  `docs/media/m2-cpu-live.png`.
+
+**Not verified:** any browser other than Chrome; the page on a phone-sized
+screen; CI on Linux.
+
+### Metrics
+
+| | |
+|---|---|
+| CPU | 2,603 NAND, 127 DFF, 2,740 wires, critical path 67 |
+| WASM | 144 kB raw, 56 kB gzipped (budget 400 kB gzipped) |
+| JS | 134 kB gzipped (budget 300 kB); almost all Three.js |
+| Demo program | 25 k cycles per frame, 1 frame per 65,536-cycle timer tick |
+
+### Decisions
+
+- ADR 0008 — device reads are pure; device time is counted in clock cycles.
+- ADR 0009 — the bit-parallel gate engine is deferred; the scalar one stays.
+- `Bus::tick`: whoever drives the clock tells devices a cycle has passed; CPU
+  engines know nothing about device time.
+- The screen is drawn from the framebuffer bytes as they are, 4 pixels per
+  byte, least significant bits first.
+
+### Known limitations
+
+- **The raycaster inner loop has still not been cycle-counted against the
+  ISA** (carried over from M1). Do it first in M3, before the assembler
+  hardens the encoding. With the fast engine at 279 M cycles/s there is far
+  more headroom than the 5 M budget assumed, so the question has changed
+  from "can it reach 10 FPS" to "which nominal clock rate do we pick": the
+  game must also stay watchable on the gate engine, which is ~1000× slower.
+- State reaches the page by copying (ADR 0004's fallback path); the
+  `SharedArrayBuffer` path is not implemented.
+- No wire-activity buffer yet (toggles between frames): the gate view shows
+  the level at the instant of each frame, which at 269 kHz is a sample, not
+  everything that happened.
+- The gate view is a flat grid. No zoom, no wires drawn, no hierarchy: M4.
+- Engine switching is manual. Switching by camera distance arrives with M4.
+- The browser check was an ad-hoc script, not a test in the repository.
+  Playwright is planned for M4.
+- No disassembly on the page (the HUD shows `ir` in hex).
+
+## Next: M3
+
+1. Write the raycaster's inner loop by hand, count cycles, adjust the ISA if
+   it hurts. Decide the nominal clock rate.
+2. Assembler (`crates/asm`): labels, expressions, data directives, includes,
+   listings, precise diagnostics. Its output must match `Insn::encode`.
+3. Calling convention, then the C-like compiler (`crates/cc`).
+4. Programs in `programs/`: a few small ones, then `maze3d`. Golden
+   framebuffer tests with scripted keys on both engines.
+5. The page loads a chosen program instead of the built-in demo.
 
 ## M1 — what was done
 
@@ -23,128 +124,45 @@ Read this and `CLAUDE.md` at the start of every session.
   `crates/isa/src/form.rs` and a test keeps them identical
   (`SILICON_BLESS=1 cargo test -p silicon-isa` rewrites it).
 - **Component library** (`crates/hdl`): gates, multiplexers, decoder, ripple
-  adder, register. `Builder::scope` can now be re-entered (a block is built in
-  two visits: read side first, flip-flops last), plus named probes and fan-in
-  cone analysis.
+  adder, register; re-enterable scopes, named probes, fan-in cone analysis.
 - **The CPU in gates** (`crates/machine/src/hw`): control unit generated from
   a microcode table as a PLA, 8-bit ALU, 16-bit address unit, register file
-  with three read ports. Only `nand` and `dff`.
+  with three read ports. Only `nand` and `dff`. By block (NAND): regs 1,031 ·
+  control 579 · agu 387 · alu 357 · dout 52 · t 50 · pc 49 · sp 49 · ir 25 ·
+  flags 24.
 - **Reference model** (`crates/sim-fast`): the CPU written again from the
   specification with plain integers, sharing no code with the microcode.
-  This was pulled forward from M2 because the hardware needed something
-  independent to be checked against.
-- **Both engines behind `Engine`** (`GateCpu`, `FastCpu`) and the **lockstep
-  harness** (`machine::lockstep`), which reports the first diverging cycle and
-  the instruction being executed.
-
-### Verification
-
-- `cargo test --workspace`: 101 tests pass. `cargo fmt --check` and
-  `cargo clippy -D warnings` are clean.
-- Every hardware block is compared with a plain Rust reference: adder,
-  multiplexers and decoder exhaustively; the ALU over all 65,536 operand
-  pairs for each of the 16 ways the microcode drives it; the control unit
-  for every opcode × step × flag value (32,768 inputs).
-- Lockstep, gate netlist against reference model, comparing the whole
-  `ArchState` and the bus access after every cycle: random memory from random
-  states (120 k cycles), every opcode from random register contents (614 k
-  cycles), a 200 k-cycle soak, and hand-written programs. About 0.9 M cycles
-  in 2.5 s.
-- Engines swapped at every cycle of a program, in both directions, give the
-  same final state and memory.
-- Structural tests: every flip-flop maps to a bit of `ArchState` (rule 5);
-  the address bus and strobes never depend on `data_in` (ADR 0003).
-- Does lockstep actually catch bugs? Four were injected one at a time (`inc`
-  clobbering `C` in the model; sticky `Z` removed from the 16-bit add
-  microcode; the increment winning in `ld a, [ba+]`; the wrong carry source
-  for shifts in the hardware). Each failed lockstep and was named correctly.
-  All four were reverted; the seeds proptest found are kept in
-  `crates/machine/tests/lockstep.proptest-regressions`.
-- `silicon-wasm` still compiles for `wasm32-unknown-unknown`.
-
-**Not run this session:** `pnpm test`, `pnpm typecheck`, `pnpm build` and
-`pnpm wasm`. The machine used had no pnpm or wasm-pack. Nothing under `web/`
-was changed. CI has not run on the branch either (it triggers on pull requests
-and on pushes to `main`).
-
-### Metrics
-
-| | |
-|---|---|
-| CPU size | 2,603 NAND, 127 DFF, 2,740 wires, 70 modules |
-| Critical path | 67 gate delays |
-| By block (NAND) | regs 1,031 · control 579 · agu 387 · alu 357 · dout 52 · t 50 · pc 49 · sp 49 · ir 25 · flags 24 |
-| Fast engine, native release build | 297 M cycles/s |
-| Gate engine, native release build, scalar evaluator | 450 k cycles/s |
-
-Speeds are from `cargo run --release -p silicon-machine --example speed` on
-the development machine. **WASM speed has not been measured**; the budgets in
-ARCHITECTURE §7 are for WASM.
-
-### Decisions
-
-- ADR 0005 — shape of the ISA: accumulator plus register pairs, every opcode
-  defined.
-- ADR 0006 — control unit is a microcode table compiled to a PLA; the
-  reference model is written independently of it.
-- ADR 0007 — reset is "every flip-flop 0", hence ROM at `0x0000` and RAM at
-  the top (the memory map in ARCHITECTURE §3 was swapped accordingly).
-- `ArchState` and `Bus` moved to `crates/isa`, so both engines depend on the
-  contract rather than on each other. `ArchState` gained `t` (operand latch).
-- Tests are built with `opt-level = 2`.
-
-### Known limitations
-
-- **The raycaster inner loop was not written out and cycle-counted** before
-  fixing the ISA, as risk 2 below asked. The ISA has what that loop should
-  need (2-cycle table lookup, 2-cycle 16-bit add, 1-cycle shifts) but this is
-  untested. Do it first thing in M3, before the assembler hardens the
-  encoding. Changing an instruction means changing `form.rs`, the microcode,
-  the fast model and `ISA.md` together; lockstep catches any mismatch.
-- No memory map or devices yet: tests use `Ram`, 64 KiB of plain memory.
-- The gate engine is still the scalar evaluator from M0 and runs the whole
-  netlist twice per cycle. The cone split of ADR 0003 is not implemented; the
-  result is the same because the address cone depends only on flip-flops.
-- The WASM binding still exposes the XOR demo, not the CPU.
-- No calling convention yet; it is defined with the compiler in M3.
-
-## Next: M2
-
-1. `Machine`: memory map of `ISA.md` §4, framebuffer, keyboard, frame timer,
-   debug port; lockstep on the whole machine.
-2. Bit-parallel gate engine with the address/main cone split; benchmark it in
-   WASM first (risk 1).
-3. Raise lockstep in CI to ≥ 5 M cycles (about 15 s at the current speed).
-4. WASM binding for the real machine; the worker runs the CPU instead of the
-   XOR demo and can switch engines.
+- **Lockstep harness** (`machine::lockstep`): reports the first diverging
+  cycle and the instruction being executed.
+- Every hardware block is compared with a plain Rust reference (ALU over all
+  operand pairs for each microcoded operation; control unit for every opcode ×
+  step × flags). Structural tests: every flip-flop maps to a bit of
+  `ArchState`; the address bus never depends on `data_in`.
+- Mutation check: four bugs injected one at a time (two in the model, two in
+  the hardware) were each caught by lockstep and named correctly.
+- ADRs 0005 (ISA shape), 0006 (microcode table compiled to a PLA, independent
+  reference model), 0007 (reset is all zeros; ROM at 0).
 
 ## M0 — what was done
 
-- Monorepo: Cargo workspace + pnpm workspace (`web`).
-- `docs/ARCHITECTURE.md`, four ADRs, `CLAUDE.md`.
-- Walking skeleton, real end to end: `hdl` builder and netlist, scalar
-  `sim-gate`, `Engine` / `Bus` traits, `wasm` XOR demo, worker and Three.js
-  view where every colour comes from the simulated wire state.
-- CI workflow: fmt, clippy, Rust tests, WASM build, typecheck, Vitest, web build.
-- Verified then: 16 Rust tests, 4 Vitest tests, production build loaded in
-  headless Chrome. XOR demo: 4 NAND, depth 3; WASM 38 kB; JS 132 kB gzipped.
-- No Playwright test yet (arrives with the real scene in M4).
+- Monorepo (Cargo + pnpm workspaces), `docs/ARCHITECTURE.md`, ADRs 0001–0004,
+  `CLAUDE.md`, CI workflow.
+- Walking skeleton: `hdl` builder and netlist, scalar `sim-gate`, a four-NAND
+  XOR simulated in WASM inside a worker and drawn with Three.js.
 
 ## Risks (biggest first)
 
-1. **Gate engine speed in WASM.** Budget: 50 k cycles/s. The CPU came out at
-   2.6 k NANDs, less than half of what was assumed, and the unoptimised scalar
-   evaluator already does 450 k cycles/s natively. Encouraging, but WASM is
-   unmeasured. Measure before optimising.
-2. **maze3d frame rate on an 8-bit CPU.** ≥ 10 FPS on `fast`. Not yet
-   validated against the ISA; see "Known limitations".
-3. **Seamless LOD across five orders of magnitude of scale.** Precision,
-   cross-fades, label legibility. Prototype with a synthetic hierarchy early in
-   M4 before polishing anything.
-4. **Engine switch correctness.** Now covered by the no-hidden-state test,
-   cycle-level lockstep and the swap-at-every-cycle test. Still to do: switch
-   under randomised timing with the full machine (M2).
-5. **Cross-browser WASM/worker/SAB behaviour** (Safari). The copy path of
-   ADR 0004 is the safety net; test both.
-6. **Scope of the C-like compiler.** Keep the language small; maze3d may use
-   inline asm for its inner loop.
+1. **Seamless LOD across five orders of magnitude of scale** (M4). Precision,
+   cross-fades, label legibility. Prototype with a synthetic hierarchy early,
+   before polishing anything. The state path (instancing + wire texture) is
+   already proven on the real CPU.
+2. **Scope of the C-like compiler** (M3). Keep the language small; maze3d may
+   use inline asm for its inner loop.
+3. **maze3d on an 8-bit CPU with no multiply.** Speed is no longer the worry
+   (see above); code size in a 32 KiB ROM and the amount of table data are.
+4. **Cross-browser WASM/worker behaviour** (Safari, Firefox). Untested.
+5. **Engine switch correctness.** Covered by the no-hidden-state test,
+   cycle-level lockstep, swap-at-every-cycle and random switching on the full
+   machine. Residual risk is in the worker's scheduling, not in the engines.
+
+Retired: *gate engine speed in WASM* (measured, 5× over budget).

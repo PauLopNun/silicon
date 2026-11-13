@@ -4,25 +4,111 @@
  * see docs/ARCHITECTURE.md §5.
  */
 
-/** Which engine produced the state being shown. */
+/** Which engine is running the CPU. */
 export type EngineKind = 'gate' | 'fast';
 
-/** Static description of one gate, sent once when the worker is ready. */
-export interface GateInfo {
-  /** Hierarchical path, e.g. `demo/xor/nand2`. */
-  path: string;
-  /** Wire indices into the state buffer. */
-  a: number;
-  b: number;
-  out: number;
+/** Numbers per gate in {@link NetlistInfo.gates}. */
+export const GATE_FIELDS = 5;
+
+/** Static description of the CPU netlist, sent once when the worker is ready. */
+export interface NetlistInfo {
+  /** Per gate: kind (0 = NAND, 1 = DFF), input wire a, input wire b, output wire, module index. */
+  gates: Uint32Array;
+  /** Parent of each module; the top module's parent is -1. */
+  moduleParents: Int32Array;
+  moduleNames: string[];
+  /** Length of the wire-level buffer. */
+  wireCount: number;
 }
 
-export type ToWorker = { type: 'setInputs'; a: boolean; b: boolean };
+export type ToWorker =
+  | { type: 'run'; running: boolean }
+  /** Run exactly this many clock cycles (used while paused). */
+  | { type: 'step'; cycles: number }
+  | { type: 'engine'; engine: EngineKind }
+  /** Target clock rate in cycles per second; `null` means as fast as possible. */
+  | { type: 'clock'; hz: number | null }
+  /** Keys held down, as the bits of the machine's KEYS register. */
+  | { type: 'keys'; keys: number }
+  | { type: 'reset' };
+
+/** Everything the page shows, sent at most once per display frame. */
+export interface FrameState {
+  type: 'frame';
+  engine: EngineKind;
+  running: boolean;
+  halted: boolean;
+  /** Clock cycles since reset. */
+  cycles: number;
+  /** Frames the program has declared finished since reset. */
+  frames: number;
+  /** Screen memory: 2048 bytes, four 2-bit pixels each. */
+  framebuffer: Uint8Array;
+  /** One byte per wire of the CPU, 0 or 1. Live only on the gate engine. */
+  wires: Uint8Array;
+  /** CPU registers, packed; see {@link decodeArch}. */
+  arch: Uint8Array;
+}
 
 export type FromWorker =
-  | { type: 'ready'; version: string; engine: EngineKind; gates: GateInfo[] }
-  | { type: 'state'; engine: EngineKind; wires: Uint8Array }
+  | ({ type: 'ready'; version: string; engine: EngineKind } & NetlistInfo)
+  | FrameState
   | { type: 'error'; message: string };
+
+/** The CPU's registers. */
+export interface ArchState {
+  pc: number;
+  sp: number;
+  /** `a b xl xh yl yh zl zh` */
+  regs: number[];
+  flags: number;
+  ir: number;
+  step: number;
+  t: number;
+}
+
+/** Length of the packed register state. */
+export const ARCH_STATE_BYTES = 17;
+
+/** Unpack the register state: pc, sp (16-bit, low byte first), 8 registers, flags, ir, step, t. */
+export function decodeArch(bytes: Uint8Array): ArchState {
+  if (bytes.length !== ARCH_STATE_BYTES) {
+    throw new RangeError(`register state is ${bytes.length} bytes, expected ${ARCH_STATE_BYTES}`);
+  }
+  const b = (i: number) => bytes[i] ?? 0;
+  const word = (i: number) => b(i) | (b(i + 1) << 8);
+  return {
+    pc: word(0),
+    sp: word(2),
+    regs: Array.from(bytes.subarray(4, 12)),
+    flags: b(12),
+    ir: b(13),
+    step: b(14),
+    t: word(15),
+  };
+}
+
+/** A 16-bit register pair: 0 = `ba`, 1 = `x`, 2 = `y`, 3 = `z`. */
+export function pairValue(regs: readonly number[], pair: number): number {
+  return (regs[2 * pair] ?? 0) | ((regs[2 * pair + 1] ?? 0) << 8);
+}
+
+/** Flags as four letters, upper case when set: bit 0 = Z, 1 = C, 2 = N, 3 = V. */
+export function flagsText(flags: number): string {
+  return ['z', 'c', 'n', 'v'].map((f, i) => ((flags >> i) & 1 ? f.toUpperCase() : f)).join('');
+}
+
+/** `0x1f` → `"1f"`, padded to `digits`. */
+export function hex(value: number, digits: number): string {
+  return value.toString(16).padStart(digits, '0');
+}
+
+/** A clock rate for people: `4.00 MHz`, `243 kHz`, `12 Hz`. */
+export function formatRate(hz: number): string {
+  if (hz >= 1e6) return `${(hz / 1e6).toFixed(2)} MHz`;
+  if (hz >= 1e3) return `${Math.round(hz / 1e3)} kHz`;
+  return `${Math.round(hz)} Hz`;
+}
 
 /** Logic level of wire `w` in a state buffer (one byte per wire). */
 export function wireLevel(wires: Uint8Array, w: number): boolean {

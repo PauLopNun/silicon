@@ -116,6 +116,11 @@ Memory map (specified in `docs/ISA.md` §4; devices are implemented in M2):
 ROM is low and RAM high because reset is simply "every flip-flop at 0"
 ([ADR 0007](adr/0007-reset-is-all-zeros.md)).
 
+`machine::Board` is the memory and the devices; `machine::Machine` is a board
+plus both engines. Device reads have no side effects and device time is the
+clock-cycle count, so runs are reproducible on either engine at any speed
+([ADR 0008](adr/0008-devices-are-pure-and-count-cycles.md)).
+
 128×64 at 4 shades is the smallest screen on which a raycaster reads well and
 distance shading is visible, while a full redraw is only 2 KiB of writes.
 
@@ -160,10 +165,12 @@ engine explicitly. The active engine and its real speed are always shown in the
 UI. In `gate` mode the game runs slower than in `fast` mode; we show that
 honestly rather than hide it.
 
-**Gate engine design (M2).** Levelized, compiled to flat arrays, evaluated
-bit-parallel: wire values packed in `u64` words so one machine operation
-evaluates up to 64 gates of the same level. `sim-gate` today is the scalar
-reference version of the same API and stays as a test oracle.
+**Gate engine design.** Levelized, compiled to flat arrays, one byte per wire,
+one NAND at a time. Measured in WASM it runs the 2,603-NAND CPU at about
+250 k cycles/s, five times the budget, so the bit-parallel evaluator that was
+planned here has been deferred
+([ADR 0009](adr/0009-scalar-gate-engine-is-enough.md)). The fast engine
+measures 279 M cycles/s. `pnpm bench` reproduces both numbers.
 
 ## 5. Worker ↔ renderer data flow
 
@@ -196,7 +203,14 @@ frontend from this, deterministically.
 **Clock scheduling.** The worker runs cycles in time-sliced batches so it stays
 responsive to commands: `cycles_this_slice = clock_rate × elapsed`, capped by a
 time budget. Step, slow motion and "explain" modes are the same loop with a
-tiny rate.
+tiny rate. The nominal clock is 4 MHz; when the active engine cannot reach it
+(the gate engine), the simulation runs as fast as it can and the page shows
+the real rate (`web/src/clock.ts`).
+
+**As of M2** the copy path is implemented, with the framebuffer, wire levels
+and registers; the gate view is a flat floorplan, one instanced quad per gate,
+reading its wire's level from a one-row texture. Wire activity, the
+`SharedArrayBuffer` path and the hierarchical scene are still to come.
 
 ## 6. Rendering (M4)
 

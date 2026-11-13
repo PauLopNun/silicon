@@ -5,38 +5,103 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="color-scheme" content="dark" />
     <title>Silicon</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%2305070c'/%3E%3Crect x='4' y='4' width='8' height='8' fill='%23ffb347'/%3E%3C/svg%3E" />
     <style>
-      :root { --bg: #05070c; --ink: #c9d6e8; --dim: #5d6b82; --hot: #ffb347; --line: #1a2233; }
-      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink); overflow: hidden;
-        font: 14px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
-      #scene { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
-      #hud { position: fixed; top: 16px; left: 16px; right: 16px; display: flex; gap: 12px;
-        align-items: center; flex-wrap: wrap; pointer-events: none; }
-      #hud > * { pointer-events: auto; }
+      :root { --bg: #05070c; --panel: #0a0e16; --ink: #c9d6e8; --dim: #6b7a92; --hot: #ffb347;
+        --state: #5adbff; --line: #1a2233; }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: var(--bg); color: var(--ink);
+        font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+      body { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; }
+      #side { background: var(--panel); border-right: 1px solid var(--line); padding: 16px;
+        display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+      header { display: flex; align-items: center; gap: 12px; }
       h1 { font-size: 14px; letter-spacing: .3em; margin: 0; font-weight: 600; }
-      #crumbs { color: var(--dim); }
       #engine { margin-left: auto; padding: 2px 10px; border: 1px solid var(--hot); color: var(--hot);
-        border-radius: 999px; text-transform: uppercase; letter-spacing: .1em; font-size: 12px; }
-      #panel { position: fixed; left: 16px; bottom: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-      button { font: inherit; color: var(--ink); background: #0c111b; border: 1px solid var(--line);
-        border-radius: 6px; padding: 8px 14px; cursor: pointer; min-width: 72px; }
-      button[aria-pressed="true"] { border-color: var(--hot); color: var(--hot); box-shadow: 0 0 12px #ffb34755; }
-      button:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
-      #status { color: var(--dim); }
+        background: none; border-radius: 999px; text-transform: uppercase; letter-spacing: .1em;
+        font-size: 12px; min-width: 0; }
+      #engine[data-engine="fast"] { border-color: var(--dim); color: var(--ink); }
+      #screen { width: 100%; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block;
+        border: 1px solid var(--line); border-radius: 4px; background: #000; }
+      #meters { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+      #speed { color: var(--hot); }
+      #registers { margin: 0; white-space: pre-wrap; color: var(--ink); font: inherit; }
+      .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+      .group { display: flex; }
+      .group button { border-radius: 0; min-width: 64px; }
+      .group button:first-child { border-radius: 6px 0 0 6px; }
+      .group button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+      button, select { font: inherit; color: var(--ink); background: #0c111b; border: 1px solid var(--line);
+        border-radius: 6px; padding: 7px 12px; cursor: pointer; min-width: 64px; }
+      button:disabled { color: var(--dim); cursor: default; }
+      button[aria-pressed="true"] { border-color: var(--hot); color: var(--hot); }
+      button:focus-visible, select:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
+      p { margin: 0; color: var(--dim); }
+      #status { margin-top: auto; }
+      #main { position: relative; min-width: 0; min-height: 0; }
+      #gates { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+      #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+      #labels span { position: absolute; color: var(--dim); white-space: nowrap; overflow: hidden;
+        text-overflow: ellipsis; padding-left: 2px; }
+      #wires-note { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
+        background: #0c111bee; border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px;
+        color: var(--ink); text-align: center; max-width: calc(100% - 32px); }
+      #legend { position: absolute; right: 16px; top: 12px; color: var(--dim); }
+      #legend i { display: inline-block; width: 9px; height: 9px; margin: 0 5px 0 12px; }
+      @media (max-width: 760px) {
+        body { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
+        #side { border-right: 0; border-bottom: 1px solid var(--line); }
+      }
     </style>
   </head>
   <body>
-    <canvas id="scene" aria-label="3D view of the circuit"></canvas>
-    <div id="hud">
-      <h1>SILICON</h1>
-      <span id="crumbs"></span>
-      <span id="engine" title="Engine currently driving what you see">…</span>
-    </div>
-    <div id="panel">
-      <button id="in-a" aria-pressed="false">A = 0</button>
-      <button id="in-b" aria-pressed="false">B = 0</button>
-      <span id="status" role="status">starting simulation…</span>
-    </div>
+    <section id="side">
+      <header>
+        <h1>SILICON</h1>
+        <button id="engine" title="Engine running the CPU. Click to switch.">…</button>
+      </header>
+      <canvas id="screen" aria-label="The computer's screen"></canvas>
+      <div id="meters">
+        <span id="speed" title="Simulated clock cycles per real second">…</span>
+        <span id="fps" title="Frames the program finishes per real second"></span>
+        <span id="cycles"></span>
+      </div>
+      <pre id="registers" aria-label="CPU registers"></pre>
+      <div class="row">
+        <div class="group" role="group" aria-label="Engine">
+          <button id="use-fast" aria-pressed="false" title="Arithmetic model, proven equivalent">fast</button>
+          <button id="use-gate" aria-pressed="false" title="Every NAND gate and flip-flop is simulated">gate</button>
+        </div>
+        <button id="run">Pause</button>
+        <button id="step" disabled title="Advance one clock cycle">Step</button>
+        <button id="reset">Reset</button>
+      </div>
+      <div class="row">
+        <label for="clock">clock</label>
+        <select id="clock">
+          <option value="4000000" selected>4 MHz</option>
+          <option value="100000">100 kHz</option>
+          <option value="1000">1 kHz</option>
+          <option value="10">10 Hz</option>
+          <option value="max">unlimited</option>
+        </select>
+        <button id="key-left" aria-pressed="false" title="The computer's left key (also ← on the keyboard)">← key</button>
+      </div>
+      <p>
+        The program draws scrolling stripes and reads the keys: hold ← to reverse them. On the gate
+        engine every gate on the right is computed for every clock cycle, so everything runs slower.
+      </p>
+      <p id="status" role="status">starting simulation…</p>
+    </section>
+    <section id="main">
+      <canvas id="gates" aria-label="Every gate of the CPU, lit when its output is 1"></canvas>
+      <div id="labels" aria-hidden="true"></div>
+      <div id="legend"><i style="background: var(--hot)"></i>NAND output = 1<i style="background: var(--state)"></i>flip-flop = 1</div>
+      <div id="wires-note" hidden>
+        The fast engine does not compute individual gates, so this view is frozen. Switch to the
+        <b>gate</b> engine to see them live.
+      </div>
+    </section>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

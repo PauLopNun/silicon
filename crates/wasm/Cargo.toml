@@ -10,7 +10,6 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 silicon-hdl.workspace = true
-silicon-sim-gate.workspace = true
 silicon-machine.workspace = true
 wasm-bindgen.workspace = true
 
