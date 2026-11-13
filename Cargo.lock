@@ -352,6 +352,7 @@ name = "silicon-asm"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "silicon-isa",
 ]
 
 [[package]]
@@ -386,6 +387,15 @@ dependencies = [
  "silicon-isa",
  "silicon-sim-fast",
  "silicon-sim-gate",
+]
+
+[[package]]
+name = "silicon-programs"
+version = "0.0.1"
+dependencies = [
+ "silicon-asm",
+ "silicon-isa",
+ "silicon-machine",
 ]
 
 [[package]]
