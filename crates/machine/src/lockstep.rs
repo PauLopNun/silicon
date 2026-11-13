@@ -57,6 +57,10 @@ impl Bus for Traced<'_> {
         self.op = BusOp::Write { addr, value };
         self.count += 1;
     }
+
+    fn tick(&mut self) {
+        self.inner.tick();
+    }
 }
 
 /// The first cycle in which two engines disagreed.
@@ -114,6 +118,8 @@ pub fn run(
         b_bus.begin_cycle();
         a.step_cycle(&mut a_bus);
         b.step_cycle(&mut b_bus);
+        a_bus.tick();
+        b_bus.tick();
         let (sa, sb) = (a.state(), b.state());
         let one_access_each = a_bus.count <= 1 && b_bus.count <= 1;
         if sa != sb || a_bus.op != b_bus.op || !one_access_each {

@@ -10,13 +10,29 @@
 //! proves it, and [`ArchState`] is what is copied across to switch from one
 //! to the other mid-run.
 //!
-//! The rest of the computer (memory map, framebuffer, keyboard, frame timer)
-//! lands in M2; until then tests use [`Ram`], 64 KiB of plain memory.
+//! Around the CPU sits the [`Board`] (ROM, RAM, framebuffer, keys, timer,
+//! console), and [`Machine`] is the two together: the whole computer.
+//!
+//! ```
+//! use silicon_isa::{assemble, Insn, Reg};
+//! use silicon_machine::{board::map, EngineKind, Machine};
+//!
+//! // Print "!" on the console and stop.
+//! let program = assemble(&[Insn::LdImm(Reg::A, b'!'), Insn::StAbsA(map::OUT), Insn::Hlt]);
+//! let mut machine = Machine::new(&program).unwrap();
+//! machine.set_engine(EngineKind::Gate); // every NAND is simulated
+//! machine.run_until_halt(100);
+//! assert_eq!(machine.board().console(), b"!");
+//! ```
 
+pub mod board;
+mod computer;
 pub mod gate;
 pub mod hw;
 pub mod lockstep;
 
+pub use board::Board;
+pub use computer::Machine;
 pub use gate::GateCpu;
 pub use silicon_isa::{ArchState, Bus};
 pub use silicon_sim_fast::{FastCpu, Ram};

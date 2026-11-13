@@ -10,40 +10,8 @@ use proptest::prelude::*;
 use silicon_isa::{assemble, AluOp, ArchState, Cond, Insn, Pair, Reg};
 use silicon_machine::{lockstep, Engine, FastCpu, GateCpu, Ram};
 
-/// xorshift64*: a small deterministic generator, so failures reproduce.
-struct Rng(u64);
-
-impl Rng {
-    fn next(&mut self) -> u64 {
-        self.0 ^= self.0 >> 12;
-        self.0 ^= self.0 << 25;
-        self.0 ^= self.0 >> 27;
-        self.0.wrapping_mul(0x2545_F491_4F6C_DD1D)
-    }
-
-    fn fill(&mut self, memory: &mut [u8]) {
-        for chunk in memory.chunks_mut(8) {
-            let bytes = self.next().to_le_bytes();
-            chunk.copy_from_slice(&bytes[..chunk.len()]);
-        }
-    }
-
-    fn state(&mut self) -> ArchState {
-        let (a, b, c) = (self.next(), self.next(), self.next());
-        ArchState {
-            pc: a as u16,
-            sp: (a >> 16) as u16,
-            t: (a >> 32) as u16,
-            ir: (a >> 48) as u8,
-            flags: (a >> 56) as u8 & 0x0F,
-            regs: b.to_le_bytes(),
-            // Mostly at an instruction boundary or early in an instruction,
-            // sometimes at a step the instruction does not even have.
-            step: [0, 0, 1, 1, 1, 2, 2, 3, 4, 5, 6, 7][(c % 12) as usize],
-            cycle: 0,
-        }
-    }
-}
+mod common;
+use common::Rng;
 
 /// Run both engines from `state` on copies of `memory`; panic with a full
 /// report at the first difference. Returns the final state.
@@ -98,20 +66,22 @@ proptest! {
 }
 
 /// A long deterministic soak: many restarts, each a fresh random machine.
+/// 9,000 runs of 500 cycles; with the tests above, over five million cycles
+/// compared (the budget in docs/ARCHITECTURE.md §7).
 #[test]
-fn soak_two_hundred_thousand_cycles() {
+fn soak_millions_of_cycles() {
     let mut rng = Rng(0x5111_C0DE);
     let mut gate = GateCpu::new();
     let mut memory = Ram::new();
     let mut halted = 0;
-    for _ in 0..400 {
+    for _ in 0..9000 {
         rng.fill(&mut memory.0);
         let state = rng.state();
         let end = check(&mut gate, &memory, &state, 500);
         halted += end.halted() as u32;
     }
     // Sanity: random programs do run for a while, they are not all stuck.
-    assert!(halted < 300, "{halted} of 400 runs ended in hlt");
+    assert!(halted < 6750, "{halted} of 9000 runs ended in hlt");
 }
 
 /// Hand-written programs covering every instruction form, run from reset to

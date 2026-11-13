@@ -83,6 +83,14 @@ impl ArchState {
 pub trait Bus {
     fn read(&mut self, addr: u16) -> u8;
     fn write(&mut self, addr: u16, value: u8);
+
+    /// One clock cycle has passed. Devices that keep time count these.
+    ///
+    /// The CPU never calls this: whoever drives the clock does (the machine,
+    /// the lockstep harness), exactly once after each CPU cycle. Plain memory
+    /// ignores it.
+    #[inline]
+    fn tick(&mut self) {}
 }
 
 impl<B: Bus + ?Sized> Bus for &mut B {
@@ -93,5 +101,9 @@ impl<B: Bus + ?Sized> Bus for &mut B {
     #[inline]
     fn write(&mut self, addr: u16, value: u8) {
         (**self).write(addr, value)
+    }
+    #[inline]
+    fn tick(&mut self) {
+        (**self).tick()
     }
 }

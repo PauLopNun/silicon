@@ -110,8 +110,30 @@ ROM is at the bottom and RAM at the top because of how the CPU resets (§7):
 `pc` = 0 and `sp` = 0. Execution begins at address 0, and the first push
 wraps to `0xFFFF`, so a program has a working stack without setting `sp`.
 
-The CPU itself knows nothing of this map; it sees 64 KiB of bytes. The devices
-and the layout of the register page are implemented with the machine in M2.
+The CPU itself knows nothing of this map; it sees 64 KiB of bytes. Writes to
+ROM, to the unused range and to read-only registers are ignored.
+
+### Screen
+
+Row `y` is the 32 bytes starting at `0x8000 + 32·y`. Each byte holds four
+pixels, the leftmost in its two least significant bits: pixel `x` of a row is
+in byte `x / 4`, shifted left by `2·(x mod 4)`. A pixel is a shade from
+0 (darkest) to 3 (brightest).
+
+### Device registers
+
+| Address | Name | Access | What |
+|---|---|---|---|
+| `0x8800` | `KEYS` | read | keys held down, one bit each; bit 0 to bit 7: up, down, left, right, A, B, start, select |
+| `0x8801` | `FRAME` | write | any write says "this frame is finished" |
+| | | read | frames finished since reset, low byte |
+| `0x8802` | `TIMER_LO` | read | clock cycles since reset, bits 15..8 |
+| `0x8803` | `TIMER_HI` | read | clock cycles since reset, bits 23..16: one tick every 65,536 cycles |
+| `0x8804` | `OUT` | write | appends a byte to the console |
+
+The rest of the page reads as 0. Reading a register never changes anything,
+and time is counted in clock cycles, not seconds, so a program behaves the
+same however fast the simulation runs (ADR 0008).
 
 ## 5. Encoding
 
