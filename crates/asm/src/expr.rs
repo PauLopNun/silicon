@@ -179,6 +179,16 @@ impl Expr {
         })
     }
 
+    /// Does the value depend on where the expression is written (`$`)?
+    pub fn mentions_here(&self) -> bool {
+        match self {
+            Expr::Here => true,
+            Expr::Num(_) | Expr::Sym(..) => false,
+            Expr::Neg(e) | Expr::Not(e) | Expr::Lo(e) | Expr::Hi(e) => e.mentions_here(),
+            Expr::Binary(_, _, l, r) => l.mentions_here() || r.mentions_here(),
+        }
+    }
+
     /// Compute the value. `here` is the address of the statement, and
     /// `lookup` gives the value of a symbol or explains why it has none.
     pub fn eval(
@@ -265,7 +275,10 @@ mod tests {
         assert_eq!(value("1 / (ten - 10)"), Err((3, "division by zero".into())));
         assert_eq!(value("1 +"), Err((4, "expected a value".into())));
         assert_eq!(value("(1 + 2"), Err((7, "expected `)`".into())));
-        assert_eq!(value("xl + 1"), Err((1, "`xl` is a register, not a value".into())));
+        assert_eq!(
+            value("xl + 1"),
+            Err((1, "`xl` is a register, not a value".into()))
+        );
         assert_eq!(value("1 << 99").unwrap_err().0, 3);
     }
 }

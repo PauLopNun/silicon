@@ -176,24 +176,36 @@ mod tests {
             toks("10 0x1F 0b1010_0101 'A' '\\n' 1_000"),
             [Num(10), Num(31), Num(0xA5), Num(65), Num(10), Num(1000)]
         );
-        assert_eq!(toks(r#""hi\n" "a;b""#), [Str(b"hi\n".to_vec()), Str(b"a;b".to_vec())]);
+        assert_eq!(
+            toks(r#""hi\n" "a;b""#),
+            [Str(b"hi\n".to_vec()), Str(b"a;b".to_vec())]
+        );
         assert_eq!(toks(r#""\x41\0\"""#), [Str(vec![0x41, 0, b'"'])]);
         assert_eq!(toks("1 << 2 >> 3"), [Num(1), Shl, Num(2), Shr, Num(3)]);
-        assert_eq!(toks(".byte .loop a.b"), [
-            Ident(".byte".into()),
-            Ident(".loop".into()),
-            Ident("a.b".into())
-        ]);
+        assert_eq!(
+            toks(".byte .loop a.b"),
+            [
+                Ident(".byte".into()),
+                Ident(".loop".into()),
+                Ident("a.b".into())
+            ]
+        );
     }
 
     #[test]
     fn errors_point_at_the_column() {
-        assert_eq!(lex("ld a, 0xZZ").unwrap_err(), (7, "`0xZZ` is not a number".into()));
+        assert_eq!(
+            lex("ld a, 0xZZ").unwrap_err(),
+            (7, "`0xZZ` is not a number".into())
+        );
         assert_eq!(lex("ld a, #1").unwrap_err().0, 7);
         assert_eq!(lex(".byte \"open").unwrap_err().0, 7);
         assert_eq!(lex("ld a, 'ab'").unwrap_err().0, 7);
         assert_eq!(lex("ld a, 1 < 2").unwrap_err().0, 9);
         assert!(lex("ld a, 'é'").unwrap_err().1.contains("ASCII"));
-        assert!(lex(r#".byte "\q""#).unwrap_err().1.contains("unknown escape"));
+        assert!(lex(r#".byte "\q""#)
+            .unwrap_err()
+            .1
+            .contains("unknown escape"));
     }
 }
