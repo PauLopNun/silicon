@@ -46,8 +46,13 @@ pub(crate) enum Stmt {
     /// `.include "file"`
     Include(String),
     /// `.loc "file", line`: report the lines that follow as coming from
-    /// there. Written by the compiler around code copied from its source.
-    Loc(String, u32),
+    /// there, one for one. Written by the compiler around assembly copied
+    /// from its source.
+    ///
+    /// `.loc "file", line, col`: report everything that follows, until the
+    /// next `.loc`, as that one place. Written by the compiler before the
+    /// code it generates for a statement.
+    Loc(String, u32, Option<u32>),
     /// A machine instruction. If its form has a numeric operand, the
     /// operand in the `Insn` is 0 and the real one is the expression.
     Insn(Insn, Option<Value>),
@@ -242,13 +247,24 @@ fn directive(name: &str, col: u32, cur: &mut Cursor, scope: &str) -> Result<Stmt
             let file = string(cur, "a file name")?;
             cur.expect(',')?;
             let line_col = cur.col();
-            match cur.peek() {
-                Some(Tok::Num(n)) if (1..=u32::MAX as i64).contains(n) => {
-                    cur.advance();
-                    Stmt::Loc(file, *n as u32)
-                }
+            let line = match cur.peek() {
+                Some(Tok::Num(n)) if (1..=u32::MAX as i64).contains(n) => *n as u32,
                 _ => return Err((line_col, "expected a line number".into())),
-            }
+            };
+            cur.advance();
+            let col = if cur.eat(',') {
+                let col_col = cur.col();
+                match cur.peek() {
+                    Some(Tok::Num(n)) if (1..=u32::MAX as i64).contains(n) => {
+                        cur.advance();
+                        Some(*n as u32)
+                    }
+                    _ => return Err((col_col, "expected a column number".into())),
+                }
+            } else {
+                None
+            };
+            Stmt::Loc(file, line, col)
         }
         _ => return Err((col, format!("unknown directive `{name}`"))),
     })
@@ -583,12 +599,16 @@ mod tests {
             [Stmt::Fill(_, Some(_))]
         ));
         assert_eq!(
+            parse(".loc \"a.c\", 12, 5").unwrap(),
+            [Stmt::Loc("a.c".into(), 12, Some(5))]
+        );
+        assert_eq!(
             parse(".include \"lib/io.asm\"").unwrap(),
             [Stmt::Include("lib/io.asm".into())]
         );
         assert_eq!(
             parse(".loc \"a.c\", 12").unwrap(),
-            [Stmt::Loc("a.c".into(), 12)]
+            [Stmt::Loc("a.c".into(), 12, None)]
         );
     }
 

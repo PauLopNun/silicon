@@ -372,6 +372,21 @@ fn loc_redirects_positions_to_another_source() {
     );
 }
 
+/// With a column, `.loc` names one place for everything that follows: the
+/// statement of a compiled language that the generated code belongs to.
+#[test]
+fn loc_with_a_column_pins_every_error_to_one_place() {
+    let source = " .loc \"game.c\", 7, 5\n inc a\n        call _missing\n ld a, 999\n \
+                  .loc \"game.c\", 9, 1\n jmp _gone\n";
+    let errors = assemble_source("out.s", source).unwrap_err();
+    assert_eq!(
+        report(&errors),
+        "game.c:7:5: error: `_missing` is not defined\n\
+         game.c:7:5: error: the value is 999; it must be -128…255\n\
+         game.c:9:1: error: `_gone` is not defined"
+    );
+}
+
 // ──────────────────────────── diagnostics ────────────────────────────
 
 #[test]

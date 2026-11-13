@@ -12,4 +12,6 @@ workspace = true
 silicon-asm.workspace = true
 
 [dev-dependencies]
+silicon-machine.workspace = true
+silicon-isa.workspace = true
 proptest.workspace = true

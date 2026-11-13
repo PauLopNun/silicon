@@ -23,7 +23,8 @@
 //! ```text
 //! name:                 a label: the address of what follows
 //! .name:                a local label, private to the label above it
-//!                       (from elsewhere it is `label.name`)
+//!                       (from elsewhere it is `label.name`; written that
+//!                       way with a colon, it defines exactly that name)
 //! name = expr           a constant
 //!
 //! .rom                  what follows goes in ROM, after what is already there
@@ -67,6 +68,7 @@
 //! whole toolchain reports errors this way, so an editor can underline them.
 
 mod assembler;
+pub use assembler::resolve as resolve_include;
 mod expr;
 mod lex;
 mod listing;

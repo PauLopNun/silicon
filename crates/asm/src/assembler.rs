@@ -33,6 +33,9 @@ struct Unit {
     file: usize,
     line: u32,
     col: u32,
+    /// The position was set by a `.loc` with a column: every error in this
+    /// statement is reported there, whatever its own column.
+    fixed_col: bool,
     /// Index into `Assembler::lines`.
     source: usize,
     /// Address given by the last layout pass (for `.org`, the new address).
@@ -167,6 +170,7 @@ impl<'a> Assembler<'a> {
     fn error_at(&mut self, unit: usize, (col, message): LineError) {
         let u = &self.units[unit];
         let (file, line) = (u.file, u.line);
+        let col = if u.fixed_col { u.col } else { col };
         self.error(file, line, col, message);
     }
 
@@ -175,16 +179,19 @@ impl<'a> Assembler<'a> {
     /// Read `text` (the contents of `name`) into units, following includes.
     fn load(&mut self, name: &str, text: &str, scope: &mut String, depth: usize) {
         let physical = self.file(name);
-        // `.loc` redirects the reported position of the lines after it.
-        let mut reported: Option<(usize, u32)> = None;
+        // `.loc` redirects the reported position of the lines after it:
+        // line for line, or all to one fixed place (when it gives a column).
+        let mut reported: Option<(usize, u32, Option<u32>)> = None;
         for (index, text) in text.lines().enumerate() {
-            let (file, line) = match &mut reported {
-                Some((file, line)) => {
-                    let here = (*file, *line);
-                    *line += 1;
+            let (file, line, fixed_col) = match &mut reported {
+                Some((file, line, col)) => {
+                    let here = (*file, *line, *col);
+                    if col.is_none() {
+                        *line += 1;
+                    }
                     here
                 }
-                None => (physical, index as u32 + 1),
+                None => (physical, index as u32 + 1, None),
             };
             let source = self.lines.len();
             self.lines.push(SourceLine {
@@ -198,14 +205,16 @@ impl<'a> Assembler<'a> {
             let stmts = match parsed {
                 Ok(stmts) => stmts,
                 Err((col, message)) => {
-                    self.error(file, line, col, message);
+                    self.error(file, line, fixed_col.unwrap_or(col), message);
                     continue;
                 }
             };
             for located in stmts {
-                let col = located.col;
+                let col = fixed_col.unwrap_or(located.col);
                 match located.stmt {
-                    Stmt::Loc(to, to_line) => reported = Some((self.file(&to), to_line)),
+                    Stmt::Loc(to, to_line, to_col) => {
+                        reported = Some((self.file(&to), to_line, to_col));
+                    }
                     Stmt::Include(path) => {
                         let path = resolve(name, &path);
                         if depth >= MAX_INCLUDE_DEPTH {
@@ -226,6 +235,7 @@ impl<'a> Assembler<'a> {
                         file,
                         line,
                         col,
+                        fixed_col: fixed_col.is_some(),
                         source,
                         addr: 0,
                         pass: 0,
@@ -583,8 +593,9 @@ enum Next {
 }
 
 /// The path of an included file: relative to the directory of the file that
-/// includes it, with `.` and `..` resolved.
-fn resolve(from: &str, path: &str) -> String {
+/// includes it, with `.` and `..` resolved. A path that begins with `/` is
+/// relative to the root of the [`Files`].
+pub fn resolve(from: &str, path: &str) -> String {
     let mut parts: Vec<&str> = match path.strip_prefix('/') {
         Some(_) => Vec::new(),
         None => {
