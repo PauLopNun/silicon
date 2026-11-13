@@ -20,10 +20,12 @@
 
 pub mod form;
 mod insn;
+mod program;
 mod state;
 
 pub use form::Form;
 pub use insn::{assemble, AluOp, Cond, Insn, Pair, Reg};
+pub use program::{Label, Program, ProgramError};
 pub use state::{flag, ArchState, Bus, STEP_MASK};
 
 /// The opcode table of `docs/ISA.md`, generated from [`form::FORMS`].

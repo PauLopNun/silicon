@@ -8,6 +8,9 @@
 //! (Rust → WASM → worker → renderer). The real `Machine` binding replaces it
 //! in M2.
 
+mod machine;
+pub use machine::Machine;
+
 use silicon_hdl::{demo, Wire};
 use silicon_machine::EngineKind;
 use silicon_sim_gate::GateSim;
