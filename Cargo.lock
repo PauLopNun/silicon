@@ -367,6 +367,14 @@ name = "silicon-hdl"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "silicon-sim-gate",
+]
+
+[[package]]
+name = "silicon-isa"
+version = "0.0.1"
+dependencies = [
+ "proptest",
 ]
 
 [[package]]
@@ -375,6 +383,7 @@ version = "0.0.1"
 dependencies = [
  "proptest",
  "silicon-hdl",
+ "silicon-isa",
  "silicon-sim-fast",
  "silicon-sim-gate",
 ]
@@ -384,6 +393,7 @@ name = "silicon-sim-fast"
 version = "0.0.1"
 dependencies = [
  "proptest",
+ "silicon-isa",
 ]
 
 [[package]]

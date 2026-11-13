@@ -22,8 +22,12 @@
 //! assert_eq!(netlist.stats().nands, 1);
 //! ```
 
+pub mod arith;
 pub mod demo;
+pub mod gates;
+pub mod word;
 
+use std::collections::HashMap;
 use std::fmt;
 
 /// A single-bit net. Wires `0` and `1` are the constants [`Wire::ZERO`] and
@@ -76,6 +80,16 @@ pub struct Module {
     pub parent: Option<ModuleId>,
 }
 
+/// A named group of wires worth looking at from outside (a bus, a control
+/// signal): what the UI labels and what tests read. `name` is the path of the
+/// module that declared it, a colon, and a local name: `cpu/alu:result`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Probe {
+    pub name: String,
+    /// Least significant bit first.
+    pub wires: Vec<Wire>,
+}
+
 /// A compiled design: flat gate list plus the module tree it came from.
 #[derive(Clone, Debug)]
 pub struct Netlist {
@@ -85,6 +99,18 @@ pub struct Netlist {
     pub modules: Vec<Module>,
     pub inputs: Vec<(String, Wire)>,
     pub outputs: Vec<(String, Wire)>,
+    pub probes: Vec<Probe>,
+}
+
+/// The combinational fan-in of a set of wires: everything that can change
+/// them within one clock cycle. See [`Netlist::fanin_cone`].
+#[derive(Clone, Debug)]
+pub struct Cone {
+    /// Per gate: is this NAND inside the cone?
+    pub gates: Vec<bool>,
+    /// Per wire: does a root depend on it within the cycle? Includes the
+    /// roots themselves and the inputs / flip-flop outputs the cone ends at.
+    pub wires: Vec<bool>,
 }
 
 /// Errors detected while building or compiling a netlist.
@@ -221,6 +247,64 @@ impl Netlist {
         })
     }
 
+    /// The wires named `name[0]`, `name[1]`… among the inputs, in bit order.
+    pub fn input_word(&self, name: &str) -> Vec<Wire> {
+        word_named(&self.inputs, name)
+    }
+
+    /// The wires named `name[0]`, `name[1]`… among the outputs, in bit order.
+    pub fn output_word(&self, name: &str) -> Vec<Wire> {
+        word_named(&self.outputs, name)
+    }
+
+    /// The wires of a probe, by full name (`cpu/alu:result`).
+    pub fn probe(&self, name: &str) -> Option<&[Wire]> {
+        self.probes
+            .iter()
+            .find(|p| p.name == name)
+            .map(|p| p.wires.as_slice())
+    }
+
+    /// Output wires of all flip-flops, in gate order.
+    pub fn dff_outputs(&self) -> Vec<Wire> {
+        self.gates
+            .iter()
+            .filter(|g| g.kind == GateKind::Dff)
+            .map(|g| g.out)
+            .collect()
+    }
+
+    /// Walk backwards from `roots` through NAND gates, stopping at primary
+    /// inputs, constants and flip-flop outputs. The result says which gates
+    /// must be evaluated to know the roots, and which wires they depend on
+    /// within a single clock cycle.
+    pub fn fanin_cone(&self, roots: &[Wire]) -> Cone {
+        let mut nand_driver = vec![u32::MAX; self.wire_count as usize];
+        for (i, g) in self.gates.iter().enumerate() {
+            if g.kind == GateKind::Nand {
+                nand_driver[g.out.index()] = i as u32;
+            }
+        }
+        let mut cone = Cone {
+            gates: vec![false; self.gates.len()],
+            wires: vec![false; self.wire_count as usize],
+        };
+        let mut stack: Vec<Wire> = roots.to_vec();
+        while let Some(w) = stack.pop() {
+            if std::mem::replace(&mut cone.wires[w.index()], true) {
+                continue;
+            }
+            let driver = nand_driver[w.index()];
+            if driver != u32::MAX {
+                cone.gates[driver as usize] = true;
+                let g = &self.gates[driver as usize];
+                stack.push(g.a);
+                stack.push(g.b);
+            }
+        }
+        cone
+    }
+
     /// Gate/wire counts and critical path depth.
     ///
     /// # Panics
@@ -245,6 +329,19 @@ impl Netlist {
     }
 }
 
+/// Collect `name[0]`, `name[1]`… from a list of named wires.
+fn word_named(named: &[(String, Wire)], name: &str) -> Vec<Wire> {
+    let mut bits: Vec<(usize, Wire)> = named
+        .iter()
+        .filter_map(|(n, w)| {
+            let index = n.strip_prefix(name)?.strip_prefix('[')?.strip_suffix(']')?;
+            Some((index.parse().ok()?, *w))
+        })
+        .collect();
+    bits.sort_unstable_by_key(|&(i, _)| i);
+    bits.into_iter().map(|(_, w)| w).collect()
+}
+
 /// Builds a [`Netlist`] one primitive at a time.
 pub struct Builder {
     nl: Netlist,
@@ -253,6 +350,8 @@ pub struct Builder {
     drivers: Vec<u8>,
     /// Per-module counters used to name gates: `[nands, dffs]`.
     counters: Vec<[u32; 2]>,
+    /// `(parent, name)` → child module, so that a scope can be re-entered.
+    children: HashMap<(u32, String), ModuleId>,
 }
 
 impl Builder {
@@ -268,11 +367,46 @@ impl Builder {
                 }],
                 inputs: Vec::new(),
                 outputs: Vec::new(),
+                probes: Vec::new(),
             },
             cur: ModuleId(0),
             drivers: vec![1, 1], // the two constants are driven by definition
             counters: vec![[0, 0]],
+            children: HashMap::new(),
         }
+    }
+
+    /// Allocate `n` wires to be driven later (a register's outputs, usually).
+    pub fn wires(&mut self, n: usize) -> Vec<Wire> {
+        (0..n).map(|_| self.wire()).collect()
+    }
+
+    /// Declare an `n`-bit primary input; bit `i` is named `name[i]`.
+    pub fn inputs(&mut self, name: &str, n: usize) -> Vec<Wire> {
+        (0..n)
+            .map(|i| self.input(&format!("{name}[{i}]")))
+            .collect()
+    }
+
+    /// Declare a multi-bit primary output; bit `i` is named `name[i]`.
+    pub fn outputs(&mut self, name: &str, wires: &[Wire]) {
+        for (i, &w) in wires.iter().enumerate() {
+            self.output(&format!("{name}[{i}]"), w);
+        }
+    }
+
+    /// Give a group of wires a name that tests and the UI can look up:
+    /// `<path of the current module>:<name>`.
+    pub fn probe(&mut self, name: &str, wires: &[Wire]) {
+        let name = format!("{}:{name}", self.nl.module_path(self.cur));
+        debug_assert!(
+            self.nl.probes.iter().all(|p| p.name != name),
+            "probe {name} declared twice"
+        );
+        self.nl.probes.push(Probe {
+            name,
+            wires: wires.to_vec(),
+        });
     }
 
     /// Allocate a wire that will be driven later with [`Builder::dff_into`].
@@ -316,15 +450,38 @@ impl Builder {
         self.push(GateKind::Dff, d, Wire::ZERO, q);
     }
 
-    /// Build a child module named `name`; gates created inside `f` belong to it.
+    /// Enter the child module `name` of the current module, creating it the
+    /// first time; gates created inside `f` belong to it.
+    ///
+    /// Entering the same name again continues the same module (its gate
+    /// numbering carries on), so sibling modules can never share a path. That
+    /// is what lets a block be built in two visits: a register's read side
+    /// before the logic that computes its next value, its flip-flops after.
+    ///
+    /// # Panics
+    /// If `name` is not lowercase ASCII letters, digits and `_`.
     pub fn scope<R>(&mut self, name: &str, f: impl FnOnce(&mut Self) -> R) -> R {
+        assert!(
+            !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_'),
+            "module name {name:?} must be lowercase letters, digits or '_'"
+        );
         let parent = self.cur;
-        let id = ModuleId(self.nl.modules.len() as u32);
-        self.nl.modules.push(Module {
-            name: name.to_string(),
-            parent: Some(parent),
-        });
-        self.counters.push([0, 0]);
+        let id = match self.children.get(&(parent.0, name.to_string())) {
+            Some(&id) => id,
+            None => {
+                let id = ModuleId(self.nl.modules.len() as u32);
+                self.nl.modules.push(Module {
+                    name: name.to_string(),
+                    parent: Some(parent),
+                });
+                self.counters.push([0, 0]);
+                self.children.insert((parent.0, name.to_string()), id);
+                id
+            }
+        };
         self.cur = id;
         let r = f(self);
         self.cur = parent;
@@ -399,6 +556,76 @@ mod tests {
         let nl = b.finish().unwrap();
         assert_eq!(nl.gate_path(0), "cpu/alu/inv/nand0");
         assert_eq!(nl.gate_path(1), "cpu/reg/dff0");
+    }
+
+    #[test]
+    fn entering_a_scope_again_continues_the_same_module() {
+        let mut b = Builder::new("cpu");
+        let a = b.input("a");
+        let q = b.wire();
+        // First visit: the read side.
+        let n = b.scope("reg", |b| b.nand(q, a));
+        let d = b.scope("logic", |b| b.nand(n, n));
+        // Second visit: the flip-flop, once its input exists.
+        b.scope("reg", |b| {
+            let extra = b.nand(d, d);
+            b.dff_into(q, extra);
+        });
+        let nl = b.finish().unwrap();
+        assert_eq!(nl.modules.len(), 3, "cpu, reg, logic");
+        let paths: Vec<String> = (0..nl.gates.len()).map(|i| nl.gate_path(i)).collect();
+        assert_eq!(
+            paths,
+            [
+                "cpu/reg/nand0",
+                "cpu/logic/nand0",
+                "cpu/reg/nand1",
+                "cpu/reg/dff0"
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "must be lowercase")]
+    fn module_names_are_validated() {
+        Builder::new("top").scope("Bad/Name", |_| ());
+    }
+
+    #[test]
+    fn probes_and_words_can_be_looked_up_by_name() {
+        let mut b = Builder::new("top");
+        let d = b.inputs("d", 3);
+        let inverted = b.scope("inv", |b| {
+            let out = b.not_word(&d);
+            b.probe("out", &out);
+            out
+        });
+        b.outputs("q", &inverted);
+        let nl = b.finish().unwrap();
+        assert_eq!(nl.input_word("d"), d);
+        assert_eq!(nl.output_word("q"), inverted);
+        assert_eq!(nl.probe("top/inv:out"), Some(inverted.as_slice()));
+        assert_eq!(nl.probe("top/inv:nope"), None);
+        assert!(nl.input_word("missing").is_empty());
+    }
+
+    #[test]
+    fn fanin_cone_stops_at_flip_flops_and_inputs() {
+        // out = nand(q, a) where q is a flip-flop fed by nand(b, b).
+        let mut b = Builder::new("top");
+        let (a, bb) = (b.input("a"), b.input("b"));
+        let nb = b.nand(bb, bb);
+        let q = b.dff(nb);
+        let out = b.nand(q, a);
+        let unrelated = b.nand(a, a);
+        let nl = b.finish().unwrap();
+        let cone = nl.fanin_cone(&[out]);
+        assert_eq!(cone.gates, [false, false, true, false]);
+        assert!(cone.wires[out.index()] && cone.wires[q.index()] && cone.wires[a.index()]);
+        // `b` only reaches `out` through the flip-flop: not within a cycle.
+        assert!(!cone.wires[bb.index()] && !cone.wires[nb.index()]);
+        assert!(!cone.wires[unrelated.index()]);
+        assert_eq!(nl.dff_outputs(), [q]);
     }
 
     #[test]

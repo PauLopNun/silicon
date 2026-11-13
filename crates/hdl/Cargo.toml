@@ -12,3 +12,6 @@ workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+# The component tests simulate what they build; they live in `tests/` so that
+# this dev-only cycle (sim-gate depends on hdl) links against one copy of hdl.
+silicon-sim-gate.workspace = true

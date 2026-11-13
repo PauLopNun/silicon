@@ -70,6 +70,23 @@ impl GateSim {
         self.state[w.index()] != 0
     }
 
+    /// Drive a group of wires with the bits of `value`, least significant
+    /// first. Works for primary inputs and, to load a state, for flip-flop
+    /// outputs. Call [`GateSim::settle`] afterwards.
+    pub fn set_word(&mut self, wires: &[Wire], value: u64) {
+        for (i, w) in wires.iter().enumerate() {
+            self.state[w.index()] = (value >> i & 1) as u8;
+        }
+    }
+
+    /// Read a group of wires as a number, least significant bit first.
+    pub fn get_word(&self, wires: &[Wire]) -> u64 {
+        wires
+            .iter()
+            .enumerate()
+            .fold(0, |acc, (i, w)| acc | (self.state[w.index()] as u64) << i)
+    }
+
     /// Propagate the combinational logic until every NAND output is up to date.
     /// One pass suffices because the gates are in levelized order.
     pub fn settle(&mut self) {
@@ -79,17 +96,25 @@ impl GateSim {
         }
     }
 
-    /// One clock cycle: settle, clock every flip-flop at once, settle again.
-    pub fn tick(&mut self) {
-        self.settle();
+    /// The clock edge alone: every flip-flop takes the value at its `d` input,
+    /// all at once. The combinational logic is *not* re-evaluated; callers
+    /// that drive inputs between phases of a cycle (the CPU bus) call
+    /// [`GateSim::settle`] themselves.
+    pub fn clock(&mut self) {
         for (slot, &[d, _]) in self.latch.iter_mut().zip(&self.dffs) {
             *slot = self.state[d as usize];
         }
         for (&v, &[_, q]) in self.latch.iter().zip(&self.dffs) {
             self.state[q as usize] = v;
         }
-        self.settle();
         self.cycles += 1;
+    }
+
+    /// One clock cycle: settle, clock every flip-flop at once, settle again.
+    pub fn tick(&mut self) {
+        self.settle();
+        self.clock();
+        self.settle();
     }
 
     /// Clock cycles executed so far.

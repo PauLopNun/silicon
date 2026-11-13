@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+silicon-isa.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true

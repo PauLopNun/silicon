@@ -1,15 +1,25 @@
 //! # Silicon machine
 //!
-//! The whole computer: CPU + memory map + devices (framebuffer, keyboard,
-//! frame timer). The machine is engine-agnostic: the CPU behind it is either
-//! the gate-level netlist or the fast model, both behind the [`Engine`] trait,
-//! and can be swapped mid-run by transferring [`ArchState`].
+//! The CPU as hardware ([`hw`]) and the two ways of running it, both behind
+//! the [`Engine`] trait:
 //!
-//! The devices and both engine adapters land in M1/M2. The trait below is the
-//! interface the rest of the project (WASM bindings, tests, UI) is written
-//! against.
+//! * [`GateCpu`]: the real NAND/DFF netlist in the gate-level simulator;
+//! * [`FastCpu`]: the arithmetic model from `silicon_sim_fast`.
+//!
+//! They are interchangeable cycle for cycle: [`lockstep`] is the harness that
+//! proves it, and [`ArchState`] is what is copied across to switch from one
+//! to the other mid-run.
+//!
+//! The rest of the computer (memory map, framebuffer, keyboard, frame timer)
+//! lands in M2; until then tests use [`Ram`], 64 KiB of plain memory.
 
-pub use silicon_sim_fast::ArchState;
+pub mod gate;
+pub mod hw;
+pub mod lockstep;
+
+pub use gate::GateCpu;
+pub use silicon_isa::{ArchState, Bus};
+pub use silicon_sim_fast::{FastCpu, Ram};
 
 /// Which implementation is currently executing CPU cycles.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -30,17 +40,11 @@ impl EngineKind {
     }
 }
 
-/// What the CPU sees outside itself: a 16-bit address space of bytes.
-pub trait Bus {
-    fn read(&mut self, addr: u16) -> u8;
-    fn write(&mut self, addr: u16, value: u8);
-}
-
 /// A CPU implementation. Both engines implement this identically, cycle for
-/// cycle; `tests/lockstep` (M2) enforces it.
+/// cycle; the lockstep tests enforce it.
 pub trait Engine {
     fn kind(&self) -> EngineKind;
-    /// Put the CPU in its power-on state.
+    /// Put the CPU in its power-on state: every flip-flop at 0.
     fn reset(&mut self);
     /// Advance exactly one clock cycle, performing at most one bus access.
     fn step_cycle(&mut self, bus: &mut dyn Bus);
@@ -48,6 +52,24 @@ pub trait Engine {
     fn state(&self) -> ArchState;
     /// Overwrite the full architectural state (used when switching engines).
     fn load_state(&mut self, state: &ArchState);
+}
+
+impl Engine for FastCpu {
+    fn kind(&self) -> EngineKind {
+        EngineKind::Fast
+    }
+    fn reset(&mut self) {
+        FastCpu::reset(self);
+    }
+    fn step_cycle(&mut self, bus: &mut dyn Bus) {
+        FastCpu::step_cycle(self, bus);
+    }
+    fn state(&self) -> ArchState {
+        FastCpu::state(self).clone()
+    }
+    fn load_state(&mut self, state: &ArchState) {
+        FastCpu::load_state(self, state);
+    }
 }
 
 #[cfg(test)]
@@ -58,5 +80,13 @@ mod tests {
     fn engine_names_are_stable() {
         assert_eq!(EngineKind::Gate.name(), "gate");
         assert_eq!(EngineKind::Fast.name(), "fast");
+    }
+
+    #[test]
+    fn both_engines_power_on_in_the_same_state() {
+        let gate = GateCpu::new();
+        let fast = FastCpu::new();
+        assert_eq!(Engine::state(&gate), ArchState::default());
+        assert_eq!(Engine::state(&fast), ArchState::default());
     }
 }

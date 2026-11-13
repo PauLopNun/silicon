@@ -8,6 +8,7 @@ edition = "2021"
 license = "MIT"
 
 [workspace.dependencies]
+silicon-isa = { path = "crates/isa" }
 silicon-hdl = { path = "crates/hdl" }
 silicon-sim-gate = { path = "crates/sim-gate" }
 silicon-sim-fast = { path = "crates/sim-fast" }
@@ -28,3 +29,8 @@ panic = "abort"
 
 [profile.bench]
 inherits = "release"
+
+# Tests simulate millions of gates (exhaustive component checks, lockstep),
+# so they are built optimised. Debug assertions and overflow checks stay on.
+[profile.test]
+opt-level = 2

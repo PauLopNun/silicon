@@ -1,6 +1,6 @@
 [package]
 name = "silicon-machine"
-description = "Silicon computer: CPU + memory map + devices, engine-agnostic"
+description = "Silicon computer: the gate-level CPU and both engines behind one trait"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -9,6 +9,7 @@ license.workspace = true
 workspace = true
 
 [dependencies]
+silicon-isa.workspace = true
 silicon-hdl.workspace = true
 silicon-sim-gate.workspace = true
 silicon-sim-fast.workspace = true
