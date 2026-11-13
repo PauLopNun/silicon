@@ -37,17 +37,20 @@ browser except `crates/wasm`.
 
 | Crate | Responsibility | Depends on |
 |---|---|---|
-| `hdl` | DSL (`Builder`), `Netlist` with module hierarchy, validation, levelization, statistics. Later: the component library (gates → adders → ALU) | — |
+| `isa` | The contract: opcode map as data, `Insn` (encode / decode / print), `ArchState`, `trait Bus`. No behaviour | — |
+| `hdl` | DSL (`Builder`), `Netlist` with module hierarchy, validation, levelization, statistics, and the generic component library (gates, multiplexers, adders, registers) | — |
 | `sim-gate` | Generic evaluator for any `Netlist`. Knows nothing about CPUs | `hdl` |
-| `sim-fast` | Cycle-accurate arithmetic model of the Silicon CPU; owns `ArchState` | — |
-| `machine` | The CPU netlist itself (`machine::hw`, M1), memory map, devices, `trait Engine` + both adapters, engine switching, lockstep harness | `hdl`, `sim-gate`, `sim-fast` |
+| `sim-fast` | Cycle-accurate arithmetic model of the Silicon CPU, written from `docs/ISA.md` | `isa` |
+| `machine` | The CPU netlist itself (`machine::hw`), `trait Engine` + both adapters, lockstep harness. From M2: memory map, devices, engine switching | `isa`, `hdl`, `sim-gate`, `sim-fast` |
 | `asm` | Assembler; owns the `Diagnostic` error type used by the whole toolchain | — |
 | `cc` | C-like compiler that emits assembly | `asm` |
 | `wasm` | Bindings: machine, toolchain, netlist metadata for the renderer | all of the above |
 
-An `isa` module holding opcode/encoding tables as plain data will be added in M1
-and used by `asm`, `sim-fast` and the control-unit generator, so the encoding
-exists in exactly one place.
+The encoding exists in exactly one place, `crates/isa/src/form.rs`. The
+decoder, the hardware's control unit and the opcode table of `docs/ISA.md` are
+all checked against it. `sim-fast` deliberately does not share the hardware's
+microcode ([ADR 0006](adr/0006-microcode-table-compiled-to-gates.md)): the two
+are independent implementations of the same specification.
 
 ## 2. Hardware description (`hdl`)
 
@@ -86,18 +89,32 @@ CPU visually and make the gate engine unusably slow. This is stated openly in
 the README and in the UI. A small gate-level RAM is built as a lesson exhibit so
 that "how memory works" is still shown with real gates.
 
-Expected size (to be measured in M1): 4–8 k NANDs, 100–150 DFFs, depth 40–80.
+Measured size (M1): 2,603 NANDs, 127 DFFs, critical path 67 gate delays.
+
+### Inside the CPU (`machine::hw`)
+
+| Block | What it is | NANDs |
+|---|---|---|
+| `control` | microcode table compiled to a PLA ([ADR 0006](adr/0006-microcode-table-compiled-to-gates.md)); outputs the control word, ~50 signals | 579 |
+| `regs` | eight 8-bit registers, two 8-bit read ports and one 16-bit pair port | 1,031 |
+| `alu` | 8-bit adder, AND/OR/XOR, right shift; every register write passes through it | 357 |
+| `agu` | 16-bit adder for all address arithmetic: `pc` + 1, stack, pointers, branches | 387 |
+| `pc`, `sp`, `t`, `ir`, `step`, `flags` | the remaining registers | 197 |
+| `dout` | what a write puts on the data bus | 52 |
 
 ## 3. The machine
 
-Provisional memory map (fixed in `docs/ISA.md`, M1):
+Memory map (specified in `docs/ISA.md` §4; devices are implemented in M2):
 
 | Range | What |
 |---|---|
-| `0x0000–0x7FFF` | RAM (32 KiB) |
+| `0x0000–0x7FFF` | ROM (32 KiB): code, trig and reciprocal tables. Execution starts at 0 |
 | `0x8000–0x87FF` | Framebuffer, 128×64, 2 bits/pixel, 4 pixels per byte (2048 bytes) |
 | `0x8800–0x88FF` | I/O: keyboard register, frame-sync/timer, (debug port for tests) |
-| `0x9000–0xFFFF` | ROM (28 KiB): code, trig and reciprocal tables |
+| `0x9000–0xFFFF` | RAM (28 KiB); the stack starts at the top |
+
+ROM is low and RAM high because reset is simply "every flip-flop at 0"
+([ADR 0007](adr/0007-reset-is-all-zeros.md)).
 
 128×64 at 4 shades is the smallest screen on which a raycaster reads well and
 distance shading is visible, while a full redraw is only 2 KiB of writes.
@@ -115,8 +132,8 @@ engines never copies memory.
 | Role | source of truth; drives everything you see inside the CPU | runs programs at playable speed |
 | Target (WASM) | ≥ 50,000 cycles/s | ≥ 5,000,000 cycles/s |
 
-**Equivalence.** `ArchState` (PC, SP, registers, flags, IR, micro-step, cycle
-count) is the complete architectural state. The lockstep harness steps both
+**Equivalence.** `ArchState` (PC, SP, registers, flags, IR, micro-step,
+operand latch, cycle count) is the complete architectural state. The lockstep harness steps both
 engines one cycle at a time on the same program and compares `ArchState`, every
 bus access (address, data, direction) and periodically all memory. It runs
 generated random programs plus everything in `programs/`, millions of cycles in
