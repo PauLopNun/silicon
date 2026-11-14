@@ -396,6 +396,7 @@ name = "silicon-programs"
 version = "0.0.1"
 dependencies = [
  "silicon-asm",
+ "silicon-cc",
  "silicon-isa",
  "silicon-machine",
 ]

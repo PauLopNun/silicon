@@ -1,13 +1,24 @@
 //! Helpers shared by the tests of the programs.
 #![allow(dead_code)]
 
+pub mod renderer;
+
 use silicon_asm::Assembly;
 use silicon_machine::board::map;
 use silicon_machine::{Bus, EngineKind, Machine};
 
 /// Build a program, or stop with its errors laid out for reading.
 pub fn build(name: &str) -> Assembly {
-    match silicon_programs::build(name) {
+    built(name, silicon_programs::build(name))
+}
+
+/// Build a file of `programs/` that is not a program of the menu.
+pub fn build_file(main: &str) -> Assembly {
+    built(main, silicon_programs::build_file(main))
+}
+
+fn built(name: &str, result: Result<Assembly, Vec<silicon_asm::Diagnostic>>) -> Assembly {
+    match result {
         Ok(assembly) => assembly,
         Err(errors) => {
             let lines: Vec<String> = errors.iter().map(|e| e.to_string()).collect();

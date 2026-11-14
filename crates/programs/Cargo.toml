@@ -10,7 +10,9 @@ workspace = true
 
 [dependencies]
 silicon-asm.workspace = true
+silicon-cc.workspace = true
 
 [dev-dependencies]
+silicon-cc.workspace = true
 silicon-isa.workspace = true
 silicon-machine.workspace = true

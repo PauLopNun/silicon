@@ -1,6 +1,8 @@
 ; The view from inside a maze. Hold LEFT or RIGHT to look around.
 ;
-; This is the renderer of maze3d on its own: a fixed place, no walking.
+; This is the renderer of maze3d on its own: a fixed place, no walking. The
+; game is main.c; this is what the renderer is measured and tested with
+; (crates/programs/tests/maze3d.rs).
 
         .include "../lib/silicon.inc"
 

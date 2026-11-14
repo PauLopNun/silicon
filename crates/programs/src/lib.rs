@@ -1,9 +1,10 @@
 //! # Silicon programs
 //!
-//! The programs of the computer live as source text in `programs/`. This
-//! crate carries those sources (so that the browser has them too) and builds
-//! them with the toolchain: nothing is assembled ahead of time, a program
-//! becomes a ROM image when it is asked for.
+//! The programs of the computer live as source text in `programs/`, in
+//! assembly (`.asm`) or in the C-like language of `docs/LANGUAGE.md` (`.c`).
+//! This crate carries those sources (so that the browser has them too) and
+//! builds them with the toolchain: nothing is built ahead of time, a
+//! program becomes a ROM image when it is asked for.
 //!
 //! ```
 //! let hello = silicon_programs::build("hello").unwrap();
@@ -30,17 +31,29 @@ pub struct Program {
 /// Every program, in the order a menu should show them.
 pub const PROGRAMS: &[Program] = &[
     Program {
+        name: "maze3d",
+        title: "Maze",
+        about: "Find the way out of the maze: ↑ ↓ walk, ← → turn. The map in the corner \
+                shows you (the bright dot) and the way out (the dimmer one).",
+        main: "maze3d/main.c",
+    },
+    Program {
+        name: "bounce",
+        title: "Bounce",
+        about: "Five balls bouncing around the screen. Hold A and they leave trails.",
+        main: "bounce.c",
+    },
+    Program {
         name: "stripes",
         title: "Stripes",
         about: "Diagonal stripes that scroll with the timer. Hold ← to reverse them.",
         main: "stripes.asm",
     },
     Program {
-        name: "maze3d",
-        title: "Maze",
-        about:
-            "The view from inside a maze, one ray per screen column. Hold ← or → to look around.",
-        main: "maze3d/view.asm",
+        name: "primes",
+        title: "Primes",
+        about: "Writes the prime numbers below 1000 on the console and stops.",
+        main: "primes.c",
     },
     Program {
         name: "hello",
@@ -59,11 +72,17 @@ macro_rules! sources {
 /// Every file under `programs/`, by its path there. (A test checks that
 /// none is missing.)
 pub const FILES: &[(&str, &str)] = sources![
+    "bounce.c",
     "hello.asm",
+    "lib/console.h",
+    "lib/silicon.h",
     "lib/silicon.inc",
+    "maze3d/main.c",
     "maze3d/render.asm",
     "maze3d/tables.inc",
     "maze3d/view.asm",
+    "maze3d/walk.h",
+    "primes.c",
     "stripes.asm",
 ];
 
@@ -94,7 +113,19 @@ pub fn build(name: &str) -> Result<Assembly, Vec<Diagnostic>> {
             message: format!("there is no program called `{name}`"),
         }]);
     };
-    silicon_asm::assemble(program.main, &Sources)
+    build_file(program.main)
+}
+
+/// Build the file `main` of `programs/` into a ROM image: compiled if it is
+/// C (`.c`), assembled otherwise. This also reaches the files that are not
+/// programs of the menu, like the renderer of maze3d on its own
+/// (`maze3d/view.asm`).
+pub fn build_file(main: &str) -> Result<Assembly, Vec<Diagnostic>> {
+    if main.ends_with(".c") {
+        silicon_cc::build(main, &Sources)
+    } else {
+        silicon_asm::assemble(main, &Sources)
+    }
 }
 
 #[cfg(test)]

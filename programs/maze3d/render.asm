@@ -12,7 +12,7 @@
 ;
 ; and it expects the caller to define
 ;
-;       _maze_map       16 x 16 bytes in ROM, row by row; 0 is floor
+;       _maze_map       16 x 16 bytes (in ROM or in RAM), row by row; 0 is floor
 ;       _player_x       2 bytes: where the player is, in cells; the high
 ;       _player_y         byte is the cell, the low byte the place inside it
 ;       _player_angle   1 byte: direction of view, 256 to a full turn;
