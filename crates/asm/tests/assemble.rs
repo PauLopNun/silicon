@@ -117,6 +117,29 @@ fn local_labels_belong_to_the_label_above_them() {
     assert_eq!(program.rom[10..], [0xF8, 2, 0]);
 }
 
+/// A compiler writes its own labels in full (`f.L1:`) between pieces of
+/// assembly the programmer wrote inside one function. Those must not come
+/// between a local label and the uses of it.
+#[test]
+fn a_label_written_in_full_does_not_begin_a_new_scope() {
+    let program = asm("
+        f:      ld   b, 2
+        .top:   dec  b
+        f.L1:   bz   .out
+        f.L2:   jmp  .top
+        .out:   hlt
+        g:      jmp  f.L2
+    ");
+    assert_eq!(program.symbols["f.top"], 2);
+    assert_eq!(program.symbols["f.L1"], 3);
+    assert_eq!(program.symbols["f.out"], 8);
+    assert!(!program.symbols.contains_key("f.L2.out"));
+    assert_eq!(
+        errors("f: hlt\nf.x: hlt\n.x: hlt"),
+        ["3:1: `f.x` is already defined at test.asm:2"]
+    );
+}
+
 #[test]
 fn constants_expressions_and_the_current_address() {
     let program = asm("

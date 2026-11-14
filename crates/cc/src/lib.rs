@@ -42,16 +42,18 @@ pub use silicon_asm::{Assembly, Diagnostic, Files, Pos};
 /// Compile the program whose main file is `main` into assembly text.
 pub fn compile(main: &str, files: &dyn Files) -> Result<String, Vec<Diagnostic>> {
     let (tokens, names) = lex::Lexer::new(files).run(main).map_err(|e| vec![e])?;
-    let items = parse::Parser::new(&tokens).program().map_err(|(loc, message)| {
-        vec![Diagnostic {
-            file: names[loc.file].clone(),
-            pos: Pos {
-                line: loc.line,
-                col: loc.col,
-            },
-            message,
-        }]
-    })?;
+    let items = parse::Parser::new(&tokens)
+        .program()
+        .map_err(|(loc, message)| {
+            vec![Diagnostic {
+                file: names[loc.file].clone(),
+                pos: Pos {
+                    line: loc.line,
+                    col: loc.col,
+                },
+                message,
+            }]
+        })?;
     let program = sema::Sema::run(&items, &names)?;
     gen::Gen::run(&program, &names)
 }

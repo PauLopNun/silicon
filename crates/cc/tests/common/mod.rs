@@ -49,7 +49,10 @@ pub fn build(source: &str) -> Assembly {
         Err(errors) => {
             let lines: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
             let assembly = silicon_cc::compile("main.c", &files(source)).unwrap_or_default();
-            panic!("the program does not build:\n{}\n{assembly}", lines.join("\n"));
+            panic!(
+                "the program does not build:\n{}\n{assembly}",
+                lines.join("\n")
+            );
         }
     }
 }
@@ -75,7 +78,9 @@ impl Run {
 
     /// The byte at a symbol of the program.
     pub fn byte(&self, symbol: &str) -> u8 {
-        self.machine.board().peek(self.program.symbols[symbol] as u16)
+        self.machine
+            .board()
+            .peek(self.program.symbols[symbol] as u16)
     }
 
     /// The 16-bit value at a symbol of the program.
@@ -120,7 +125,9 @@ pub fn output(source: &str) -> String {
 /// The errors of a program that must not compile, as `file:line:col: message`
 /// without the word "error".
 pub fn errors(source: &str) -> Vec<String> {
-    let errors = silicon_cc::build("main.c", &files(source)).expect_err("the program should be rejected");
+    let Err(errors) = silicon_cc::build("main.c", &files(source)) else {
+        panic!("the program should be rejected:\n{source}");
+    };
     errors
         .iter()
         .map(|e| format!("{}:{}:{}: {}", e.file, e.pos.line, e.pos.col, e.message))

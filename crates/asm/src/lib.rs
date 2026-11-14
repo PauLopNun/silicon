@@ -24,7 +24,8 @@
 //! name:                 a label: the address of what follows
 //! .name:                a local label, private to the label above it
 //!                       (from elsewhere it is `label.name`; written that
-//!                       way with a colon, it defines exactly that name)
+//!                       way with a colon it defines exactly that name,
+//!                       and what follows still belongs to `label`)
 //! name = expr           a constant
 //!
 //! .rom                  what follows goes in ROM, after what is already there

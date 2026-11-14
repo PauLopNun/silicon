@@ -257,7 +257,12 @@ impl<'a> Gen<'a> {
     /// Assembly the programmer wrote: copied as it is, with its lines
     /// reported as the lines of the source they came from.
     fn asm(&mut self, text: &str, loc: Loc) {
-        let _ = writeln!(self.out, "        .loc \"{}\", {}", self.file_name(loc.file), loc.line);
+        let _ = writeln!(
+            self.out,
+            "        .loc \"{}\", {}",
+            self.file_name(loc.file),
+            loc.line
+        );
         self.out.push_str(text);
         self.out.push('\n');
     }
@@ -294,11 +299,18 @@ impl<'a> Gen<'a> {
         }
         for (n, text) in program.strings.iter().enumerate() {
             self.label(&format!("cc_str{n}"));
-            let bytes: Vec<Datum> = text.iter().chain(&[0]).map(|&b| Datum::Byte(b as i64)).collect();
+            let bytes: Vec<Datum> = text
+                .iter()
+                .chain(&[0])
+                .map(|&b| Datum::Byte(b as i64))
+                .collect();
             self.datums(&bytes);
         }
         let ram = |with_values: bool| {
-            program.data.iter().filter(move |d| !d.rom && d.init.is_some() == with_values)
+            program
+                .data
+                .iter()
+                .filter(move |d| !d.rom && d.init.is_some() == with_values)
         };
         if ram(true).next().is_some() {
             self.label("cc_data_init");
@@ -415,7 +427,11 @@ impl<'a> Gen<'a> {
             Stmt::Break(loc) | Stmt::Continue(loc) => {
                 self.at(*loc);
                 let (next, end) = self.loops.last().cloned().expect("checked: inside a loop");
-                let target = if matches!(s, Stmt::Break(_)) { end } else { next };
+                let target = if matches!(s, Stmt::Break(_)) {
+                    end
+                } else {
+                    next
+                };
                 self.ins(format!("jmp {target}"));
             }
         }
@@ -545,7 +561,13 @@ impl<'a> Gen<'a> {
                 self.expr(inner, true);
                 self.ins("xor a, 0xff");
                 if wide {
-                    for line in ["mov xl, a", "mov a, b", "xor a, 0xff", "mov b, a", "mov a, xl"] {
+                    for line in [
+                        "mov xl, a",
+                        "mov a, b",
+                        "xor a, 0xff",
+                        "mov b, a",
+                        "mov a, xl",
+                    ] {
                         self.ins(line);
                     }
                 }
@@ -607,7 +629,11 @@ impl<'a> Gen<'a> {
                 };
                 let current = part(Kind::Load(place.clone()));
                 let step = part(Kind::Const(ty.wrap(*delta)));
-                let sum = part(Kind::Binary(Op::Add, Box::new(current.clone()), Box::new(step)));
+                let sum = part(Kind::Binary(
+                    Op::Add,
+                    Box::new(current.clone()),
+                    Box::new(step),
+                ));
                 let update = part(Kind::Store(place.clone(), Box::new(sum)));
                 if want {
                     // The old value waits on the stack while the variable
@@ -709,7 +735,13 @@ impl<'a> Gen<'a> {
             }
             Place::Deref(pointer) => {
                 self.address_in_x(pointer);
-                for line in ["ld a, [x+]", "mov yl, a", "ld a, [x]", "mov b, a", "mov a, yl"] {
+                for line in [
+                    "ld a, [x+]",
+                    "mov yl, a",
+                    "ld a, [x]",
+                    "mov b, a",
+                    "mov a, yl",
+                ] {
                     self.ins(line);
                 }
             }
@@ -866,7 +898,14 @@ impl<'a> Gen<'a> {
 
     /// One step of a 16-bit shift to the right: `shift` is `shr` or `asr`.
     fn shift_right16(&mut self, shift: &str) {
-        for line in ["mov xl, a", "mov a, b", shift, "mov b, a", "mov a, xl", "ror a"] {
+        for line in [
+            "mov xl, a",
+            "mov a, b",
+            shift,
+            "mov b, a",
+            "mov a, xl",
+            "ror a",
+        ] {
             self.ins(line);
         }
     }
@@ -954,7 +993,11 @@ impl<'a> Gen<'a> {
             Op::DivU => self.call_runtime("cc_udivmod8"),
             Op::DivS => self.call_runtime("cc_sdivmod8"),
             Op::ModU | Op::ModS => {
-                self.call_runtime(if op == Op::ModU { "cc_udivmod8" } else { "cc_sdivmod8" });
+                self.call_runtime(if op == Op::ModU {
+                    "cc_udivmod8"
+                } else {
+                    "cc_sdivmod8"
+                });
                 self.ins("mov a, xh");
             }
             Op::Shl => self.call_runtime("cc_shl8"),
@@ -969,7 +1012,14 @@ impl<'a> Gen<'a> {
             Op::Add => self.ins("add ba, x"),
             Op::Sub => {
                 // Low bytes, then high bytes with the borrow.
-                for line in ["sub a, xl", "mov xl, a", "mov a, b", "sbc a, xh", "mov b, a", "mov a, xl"] {
+                for line in [
+                    "sub a, xl",
+                    "mov xl, a",
+                    "mov a, b",
+                    "sbc a, xh",
+                    "mov b, a",
+                    "mov a, xl",
+                ] {
                     self.ins(line);
                 }
             }
@@ -980,7 +1030,11 @@ impl<'a> Gen<'a> {
             Op::DivU => self.call_runtime("cc_udivmod16"),
             Op::DivS => self.call_runtime("cc_sdivmod16"),
             Op::ModU | Op::ModS => {
-                self.call_runtime(if op == Op::ModU { "cc_udivmod16" } else { "cc_sdivmod16" });
+                self.call_runtime(if op == Op::ModU {
+                    "cc_udivmod16"
+                } else {
+                    "cc_sdivmod16"
+                });
                 self.ins("mov a, yl");
                 self.ins("mov b, yh");
             }

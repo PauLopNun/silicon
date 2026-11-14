@@ -70,7 +70,10 @@ impl<'a> Parser<'a> {
         if self.eat(p) {
             Ok(())
         } else {
-            Err((self.loc(), format!("expected `{p}` but found {}", self.found())))
+            Err((
+                self.loc(),
+                format!("expected `{p}` but found {}", self.found()),
+            ))
         }
     }
 
@@ -125,7 +128,10 @@ impl<'a> Parser<'a> {
         let Some(base) = self.base() else {
             return Err((
                 self.loc(),
-                format!("expected a type (`u8`, `i8`, `u16`, `i16`, `void`) but found {}", self.found()),
+                format!(
+                    "expected a type (`u8`, `i8`, `u16`, `i16`, `void`) but found {}",
+                    self.found()
+                ),
             ));
         };
         self.advance();
@@ -181,7 +187,10 @@ impl<'a> Parser<'a> {
             None
         } else {
             if !self.at("{") {
-                return Err((self.loc(), format!("expected `{{` or `;` but found {}", self.found())));
+                return Err((
+                    self.loc(),
+                    format!("expected `{{` or `;` but found {}", self.found()),
+                ));
             }
             Some(self.block()?)
         };
@@ -303,7 +312,10 @@ impl<'a> Parser<'a> {
         if self.eat_word("do") {
             let body = Box::new(self.stmt()?);
             if !self.eat_word("while") {
-                return Err((self.loc(), format!("expected `while` but found {}", self.found())));
+                return Err((
+                    self.loc(),
+                    format!("expected `while` but found {}", self.found()),
+                ));
             }
             let condition = self.condition()?;
             self.expect(";")?;
@@ -321,14 +333,26 @@ impl<'a> Parser<'a> {
                 self.expect(";")?;
                 Some(Box::new(Stmt::Expr(e)))
             };
-            let condition = if self.at(";") { None } else { Some(self.expr()?) };
+            let condition = if self.at(";") {
+                None
+            } else {
+                Some(self.expr()?)
+            };
             self.expect(";")?;
-            let step = if self.at(")") { None } else { Some(self.expr()?) };
+            let step = if self.at(")") {
+                None
+            } else {
+                Some(self.expr()?)
+            };
             self.expect(")")?;
             return Ok(Stmt::For(init, condition, step, Box::new(self.stmt()?)));
         }
         if self.eat_word("return") {
-            let value = if self.at(";") { None } else { Some(self.expr()?) };
+            let value = if self.at(";") {
+                None
+            } else {
+                Some(self.expr()?)
+            };
             self.expect(";")?;
             return Ok(Stmt::Return(value, loc));
         }
@@ -596,7 +620,12 @@ mod tests {
                     format!("{f}({})", args.join(", "))
                 }
                 ExprKind::Index(a, i) => format!("{}[{}]", show(a), show(i)),
-                ExprKind::Cast(ty, a) => format!("({:?}{} {})", ty.base, "*".repeat(ty.pointers as usize), show(a)),
+                ExprKind::Cast(ty, a) => format!(
+                    "({:?}{} {})",
+                    ty.base,
+                    "*".repeat(ty.pointers as usize),
+                    show(a)
+                ),
                 ExprKind::SizeofType(ty) => format!("sizeof({:?})", ty.base),
                 ExprKind::SizeofExpr(a) => format!("sizeof {}", show(a)),
             }
@@ -617,17 +646,29 @@ mod tests {
         assert_eq!(shape("a - b - c"), "(Sub (Sub a b) c)");
         assert_eq!(shape("a = b = c"), "(= a (= b c))");
         assert_eq!(shape("a << 1 | b & 3"), "(Or (Shl a 1) (And b 3))");
-        assert_eq!(shape("a == b && c < d || e"), "(LogOr (LogAnd (Eq a b) (Lt c d)) e)");
+        assert_eq!(
+            shape("a == b && c < d || e"),
+            "(LogOr (LogAnd (Eq a b) (Lt c d)) e)"
+        );
         assert_eq!(shape("a ? b : c ? d : e"), "(? a b (? c d e))");
         assert_eq!(shape("x += y * 2"), "(Add= x (Mul y 2))");
-        assert_eq!(shape("-a + ~b * !c"), "(Add (Neg a) (Mul (BitNot b) (Not c)))");
-        assert_eq!(shape("*p++ = a[i + 1]"), "(= (Deref (PostInc p)) a[(Add i 1)])");
+        assert_eq!(
+            shape("-a + ~b * !c"),
+            "(Add (Neg a) (Mul (BitNot b) (Not c)))"
+        );
+        assert_eq!(
+            shape("*p++ = a[i + 1]"),
+            "(= (Deref (PostInc p)) a[(Add i 1)])"
+        );
         assert_eq!(shape("&a[2]"), "(Addr a[2])");
         assert_eq!(shape("--x - -y"), "(Sub (PreDec x) (Neg y))");
         assert_eq!(shape("(u16)a * b"), "(Mul (U16 a) b)");
         assert_eq!(shape("*(u8*)0x8801 = 1"), "(= (Deref (U8* 34817)) 1)");
         assert_eq!(shape("f(a, g(), 3)[0]"), "f(a, g(), 3)[0]");
-        assert_eq!(shape("sizeof(u16) + sizeof table"), "(Add sizeof(U16) sizeof table)");
+        assert_eq!(
+            shape("sizeof(u16) + sizeof table"),
+            "(Add sizeof(U16) sizeof table)"
+        );
         assert_eq!(shape("(a) + 1"), "(Add a 1)");
         assert_eq!(shape("\"ab\" \"cd\""), "\"abcd\"");
     }
@@ -644,18 +685,38 @@ mod tests {
         let Item::Global(n) = &items[0] else { panic!() };
         assert!(n.is_const && n.array.is_none() && n.init.is_some());
         let Item::Global(p) = &items[2] else { panic!() };
-        assert_eq!((p.name.as_str(), p.ty.pointers), ("p", 1), "the `*` belongs to the type");
-        let Item::Global(grid) = &items[3] else { panic!() };
+        assert_eq!(
+            (p.name.as_str(), p.ty.pointers),
+            ("p", 1),
+            "the `*` belongs to the type"
+        );
+        let Item::Global(grid) = &items[3] else {
+            panic!()
+        };
         assert!(matches!(grid.array, Some(Some(_))));
-        let Item::Global(text) = &items[4] else { panic!() };
+        let Item::Global(text) = &items[4] else {
+            panic!()
+        };
         assert!(matches!(text.array, Some(None)));
-        let Item::Global(big) = &items[5] else { panic!() };
+        let Item::Global(big) = &items[5] else {
+            panic!()
+        };
         assert!(matches!(&big.init, Some(Init::List(v, _)) if v.len() == 3));
-        let Item::Function(f) = &items[6] else { panic!() };
+        let Item::Function(f) = &items[6] else {
+            panic!()
+        };
         assert!(f.body.is_none() && f.params.is_empty());
-        let Item::Function(g) = &items[7] else { panic!() };
+        let Item::Function(g) = &items[7] else {
+            panic!()
+        };
         assert_eq!(g.params.len(), 2);
-        assert_eq!(g.params[1].ty, TypeName { base: Base::U8, pointers: 1 });
+        assert_eq!(
+            g.params[1].ty,
+            TypeName {
+                base: Base::U8,
+                pointers: 1
+            }
+        );
         assert!(matches!(&items[8], Item::Asm(text, _) if text.contains(".include")));
     }
 
@@ -674,7 +735,9 @@ mod tests {
             }",
         )
         .unwrap();
-        let Item::Function(f) = &items[0] else { panic!() };
+        let Item::Function(f) = &items[0] else {
+            panic!()
+        };
         let body = f.body.as_ref().unwrap();
         assert_eq!(body.len(), 8);
         assert!(matches!(&body[0], Stmt::Locals(d) if d.len() == 2));
@@ -691,14 +754,42 @@ mod tests {
             let (loc, message) = parse(source).unwrap_err();
             (loc.line, loc.col, message)
         };
-        assert_eq!(err("u8 x = 1"), (1, 8, "expected `;` but found the end of the file".into()));
-        assert_eq!(err("void f() { x = ; }"), (1, 16, "expected a value but found `;`".into()));
-        assert_eq!(err("void f() { if x }"), (1, 15, "expected `(` but found `x`".into()));
-        assert_eq!(err("u8 while;"), (1, 4, "`while` is a keyword and cannot be the name of a variable".into()));
-        assert_eq!(err("x = 1;").2, "expected a type (`u8`, `i8`, `u16`, `i16`, `void`) but found `x`");
-        assert_eq!(err("void f() {\n x = 1;\n"), (1, 10, "this `{` is never closed".into()));
-        assert_eq!(err("void f() u8"), (1, 10, "expected `{` or `;` but found `u8`".into()));
+        assert_eq!(
+            err("u8 x = 1"),
+            (1, 8, "expected `;` but found the end of the file".into())
+        );
+        assert_eq!(
+            err("void f() { x = ; }"),
+            (1, 16, "expected a value but found `;`".into())
+        );
+        assert_eq!(
+            err("void f() { if x }"),
+            (1, 15, "expected `(` but found `x`".into())
+        );
+        assert_eq!(
+            err("u8 while;"),
+            (
+                1,
+                4,
+                "`while` is a keyword and cannot be the name of a variable".into()
+            )
+        );
+        assert_eq!(
+            err("x = 1;").2,
+            "expected a type (`u8`, `i8`, `u16`, `i16`, `void`) but found `x`"
+        );
+        assert_eq!(
+            err("void f() {\n x = 1;\n"),
+            (1, 10, "this `{` is never closed".into())
+        );
+        assert_eq!(
+            err("void f() u8"),
+            (1, 10, "expected `{` or `;` but found `u8`".into())
+        );
         assert_eq!(err("void f() { a[1; }").2, "expected `]` but found `;`");
-        assert_eq!(err("void f() { do x++; until (x); }").2, "expected `while` but found `until`");
+        assert_eq!(
+            err("void f() { do x++; until (x); }").2,
+            "expected `while` but found `until`"
+        );
     }
 }

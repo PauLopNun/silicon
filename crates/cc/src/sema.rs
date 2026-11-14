@@ -31,9 +31,12 @@ enum Global {
     },
 }
 
-struct Local {
-    var: Var,
-    ty: Ty,
+/// A name declared inside a function.
+enum Local {
+    /// A variable or a parameter: a place in the function's frame.
+    Var(Var, Ty),
+    /// `const u8 N = 4;`: a name for a value, with no storage.
+    Const(Expr),
 }
 
 /// How a constant is fitted to the type of the other operand.
@@ -111,6 +114,48 @@ fn fold(op: Op, x: i64, y: i64, ty: &Ty) -> Option<i64> {
     Some(ty.wrap(v))
 }
 
+/// Can the statements finish and let whatever follows them run? Judged by
+/// their shape alone: conditions are not worked out, except those that are
+/// plainly constants (`while (1)`).
+fn runs_off_the_end(stmts: &[Stmt]) -> bool {
+    !stmts.iter().any(never_passes)
+}
+
+/// Does control never go from this statement on to the next?
+fn never_passes(s: &Stmt) -> bool {
+    let always = |e: &Option<Expr>| match e {
+        None => true,
+        Some(e) => e.constant().is_some_and(|v| v != 0),
+    };
+    match s {
+        Stmt::Return(..) | Stmt::Break(_) | Stmt::Continue(_) => true,
+        // Assembly is trusted: a function may end in a block that leaves
+        // the result in `a` or returns by itself.
+        Stmt::Asm(..) => true,
+        Stmt::Block(stmts) => !runs_off_the_end(stmts),
+        Stmt::If(_, then, otherwise) => !runs_off_the_end(then) && !runs_off_the_end(otherwise),
+        // A loop without an end is left only by `return` or `break`.
+        Stmt::Loop {
+            before,
+            body,
+            after,
+            ..
+        } => always(before) && (after.is_none() || always(after)) && !breaks(body),
+        Stmt::Expr(_) => false,
+    }
+}
+
+/// Is there a `break` that leaves the loop these statements are the body
+/// of? (Those of loops inside it leave only those.)
+fn breaks(stmts: &[Stmt]) -> bool {
+    stmts.iter().any(|s| match s {
+        Stmt::Break(_) => true,
+        Stmt::Block(stmts) => breaks(stmts),
+        Stmt::If(_, then, otherwise) => breaks(then) || breaks(otherwise),
+        _ => false,
+    })
+}
+
 impl<'a> Sema<'a> {
     /// Analyse a whole program.
     pub fn run(items: &[ast::Item], files: &'a [String]) -> Result<Program, Vec<Diagnostic>> {
@@ -136,7 +181,10 @@ impl<'a> Sema<'a> {
         }
         match sema.globals.get("main").cloned() {
             Some(Global::Function { params, loc, .. }) if !params.is_empty() => {
-                sema.error(loc, "`main` takes no arguments: nobody is there to give them");
+                sema.error(
+                    loc,
+                    "`main` takes no arguments: nobody is there to give them",
+                );
             }
             Some(Global::Function { defined: true, .. }) => {}
             _ => {
@@ -219,7 +267,10 @@ impl<'a> Sema<'a> {
         let value = self.rvalue(e, Some(ty));
         let value = self.convert(value, ty, false, e.loc);
         if value.ty != Ty::Error && !matches!(value.kind, Kind::Const(_) | Kind::Sym(..)) {
-            return self.wrong(e.loc, "this must be a constant: it is needed before the program runs");
+            return self.wrong(
+                e.loc,
+                "this must be a constant: it is needed before the program runs",
+            );
         }
         value
     }
@@ -277,7 +328,10 @@ impl<'a> Sema<'a> {
             };
             if decl.is_const {
                 let Some(value) = init else {
-                    self.error(decl.loc, format!("the constant `{}` needs a value", decl.name));
+                    self.error(
+                        decl.loc,
+                        format!("the constant `{}` needs a value", decl.name),
+                    );
                     return;
                 };
                 self.globals.insert(decl.name.clone(), Global::Const(value));
@@ -315,7 +369,10 @@ impl<'a> Sema<'a> {
                     None
                 }
                 _ => {
-                    self.error(e.loc, "an array is given its values as a list: `{ 1, 2, 3 }`");
+                    self.error(
+                        e.loc,
+                        "an array is given its values as a list: `{ 1, 2, 3 }`",
+                    );
                     None
                 }
             },
@@ -325,7 +382,10 @@ impl<'a> Sema<'a> {
             (Some(e), _) => self.array_len(e),
             (None, Some(values)) => Some(values.len() as u32),
             (None, None) => {
-                self.error(decl.loc, format!("`{}` has no size and no values to count", decl.name));
+                self.error(
+                    decl.loc,
+                    format!("`{}` has no size and no values to count", decl.name),
+                );
                 None
             }
         };
@@ -342,14 +402,24 @@ impl<'a> Sema<'a> {
                 let given = text_len.map_or(init.len(), |t| t + 1);
                 self.error(
                     decl.loc,
-                    format!("`{}` has room for {len} values and {given} are given", decl.name),
+                    format!(
+                        "`{}` has room for {len} values and {given} are given",
+                        decl.name
+                    ),
                 );
                 return;
             }
-            let zero = if elem.wide() { Datum::Word(0) } else { Datum::Byte(0) };
+            let zero = if elem.wide() {
+                Datum::Word(0)
+            } else {
+                Datum::Byte(0)
+            };
             init.resize(len as usize, zero);
         } else if decl.is_const {
-            self.error(decl.loc, format!("the constant `{}` needs its values", decl.name));
+            self.error(
+                decl.loc,
+                format!("the constant `{}` needs its values", decl.name),
+            );
             return;
         }
         self.program.data.push(Data {
@@ -383,7 +453,10 @@ impl<'a> Sema<'a> {
             }) => {
                 if r != ret || p != params {
                     let at = self.where_is(loc);
-                    self.error(f.loc, format!("`{}` is declared differently at {at}", f.name));
+                    self.error(
+                        f.loc,
+                        format!("`{}` is declared differently at {at}", f.name),
+                    );
                     return;
                 }
                 if was && defined {
@@ -396,7 +469,10 @@ impl<'a> Sema<'a> {
                 }
             }
             Some(_) => {
-                self.error(f.loc, format!("`{}` is already declared as a variable", f.name));
+                self.error(
+                    f.loc,
+                    format!("`{}` is already declared as a variable", f.name),
+                );
                 return;
             }
         }
@@ -422,12 +498,26 @@ impl<'a> Sema<'a> {
         let count = params.len() as u32;
         for (i, (param, ty)) in f.params.iter().zip(params).enumerate() {
             let var = Var::Param(2 * (count - 1 - i as u32));
-            if self.scopes[0].insert(param.name.clone(), Local { var, ty }).is_some() {
-                self.error(param.loc, format!("two parameters are called `{}`", param.name));
+            if self.scopes[0]
+                .insert(param.name.clone(), Local::Var(var, ty))
+                .is_some()
+            {
+                self.error(
+                    param.loc,
+                    format!("two parameters are called `{}`", param.name),
+                );
             }
         }
         let body = self.block(body);
         self.scopes.clear();
+        if self.ret != Ty::Void && runs_off_the_end(&body) {
+            let message = format!(
+                "`{}` must return {}, and its end can be reached without a `return`",
+                f.name,
+                a(&self.ret)
+            );
+            self.error(f.end, message);
+        }
         Some(Function {
             name: format!("_{}", f.name),
             frame: self.frame_max,
@@ -578,6 +668,10 @@ impl<'a> Sema<'a> {
                 return;
             }
         };
+        if decl.is_const {
+            self.local_constant(decl, &ty);
+            return;
+        }
         // The value is worked out before the name exists: `u8 x = x + 1`
         // means the `x` outside.
         let init = match &decl.init {
@@ -602,20 +696,51 @@ impl<'a> Sema<'a> {
         let var = Var::Local(self.frame);
         self.frame += ty.size();
         self.frame_max = self.frame_max.max(self.frame);
-        let scope = self.scopes.last_mut().expect("inside a function");
-        let local = Local {
-            var: var.clone(),
-            ty: ty.clone(),
-        };
-        if scope.insert(decl.name.clone(), local).is_some() {
-            self.error(decl.loc, format!("`{}` is already declared in this block", decl.name));
-        }
+        self.declare(decl, Local::Var(var.clone(), ty.clone()));
         if let Some(value) = init {
             out.push(Stmt::Expr(Expr {
                 kind: Kind::Store(Box::new(Place::Var(var)), Box::new(value)),
                 ty,
                 loc: decl.loc,
             }));
+        }
+    }
+
+    /// `const u8 N = 4;` inside a function: a name for a value, as outside
+    /// one, known from here to the end of the block.
+    fn local_constant(&mut self, decl: &ast::Decl, ty: &Ty) {
+        if !ty.scalar() {
+            self.error(
+                decl.loc,
+                "a constant array is kept in ROM; declare it outside the functions",
+            );
+            return;
+        }
+        let value = match &decl.init {
+            Some(Init::Expr(e)) => self.constant(e, ty),
+            Some(Init::List(_, loc)) => {
+                self.error(*loc, "only an array can be given a list of values");
+                return;
+            }
+            None => {
+                self.error(
+                    decl.loc,
+                    format!("the constant `{}` needs a value", decl.name),
+                );
+                return;
+            }
+        };
+        self.declare(decl, Local::Const(value));
+    }
+
+    /// Make a name known in the innermost block.
+    fn declare(&mut self, decl: &ast::Decl, local: Local) {
+        let scope = self.scopes.last_mut().expect("inside a function");
+        if scope.insert(decl.name.clone(), local).is_some() {
+            self.error(
+                decl.loc,
+                format!("`{}` is already declared in this block", decl.name),
+            );
         }
     }
 
@@ -682,10 +807,7 @@ impl<'a> Sema<'a> {
     /// do more).
     fn convert(&mut self, e: Expr, to: &Ty, explicit: bool, loc: Loc) -> Expr {
         if e.ty == Ty::Error || *to == Ty::Error {
-            return Expr {
-                ty: Ty::Error,
-                ..e
-            };
+            return Expr { ty: Ty::Error, ..e };
         }
         if e.ty == *to {
             return e;
@@ -723,10 +845,18 @@ impl<'a> Sema<'a> {
             }
             (Ty::Void, _) => self.wrong(loc, "this has no value"),
             (from, to) => {
-                let from = if *from == Ty::Lit { "a number".to_string() } else { a(from) };
+                let from = if *from == Ty::Lit {
+                    "a number".to_string()
+                } else {
+                    a(from)
+                };
                 self.wrong(
                     loc,
-                    format!("this is {from} and {} is needed; write `({})…` if that is meant", a(to), to.name()),
+                    format!(
+                        "this is {from} and {} is needed; write `({})…` if that is meant",
+                        a(to),
+                        to.name()
+                    ),
                 )
             }
         }
@@ -795,8 +925,17 @@ impl<'a> Sema<'a> {
                 Some((fit(x), fit(y)))
             }
             (p, q) => {
-                let name = |t: &Ty| if *t == Ty::Lit { "a number".to_string() } else { a(t) };
-                self.error(loc, format!("{} and {} cannot be combined here", name(p), name(q)));
+                let name = |t: &Ty| {
+                    if *t == Ty::Lit {
+                        "a number".to_string()
+                    } else {
+                        a(t)
+                    }
+                };
+                self.error(
+                    loc,
+                    format!("{} and {} cannot be combined here", name(p), name(q)),
+                );
                 None
             }
         }
@@ -899,7 +1038,7 @@ impl<'a> Sema<'a> {
                 // The size of an array is the size of all of it.
                 let whole = match &operand.kind {
                     ExprKind::Ident(name) => match (self.lookup(name), self.globals.get(name)) {
-                        (Some(local), _) => Some(local.ty.size()),
+                        (Some(Local::Var(_, ty)), _) => Some(ty.size()),
                         (None, Some(Global::Var(ty))) => Some(ty.size()),
                         _ => None,
                     },
@@ -935,14 +1074,18 @@ impl<'a> Sema<'a> {
         let loc = e.loc;
         if let ExprKind::Ident(name) = &e.kind {
             // Names that are values but not places.
-            if self.lookup(name).is_none() {
-                match self.globals.get(name).cloned() {
-                    Some(Global::Const(value)) => return Expr { loc, ..value },
-                    Some(Global::Function { .. }) => {
-                        return self.wrong(loc, format!("`{name}` is a function; call it: `{name}(…)`"));
-                    }
-                    _ => {}
+            match (self.lookup(name), self.globals.get(name)) {
+                (Some(Local::Const(value)), _) | (None, Some(Global::Const(value))) => {
+                    return Expr {
+                        loc,
+                        ..value.clone()
+                    };
                 }
+                (None, Some(Global::Function { .. })) => {
+                    return self
+                        .wrong(loc, format!("`{name}` is a function; call it: `{name}(…)`"));
+                }
+                _ => {}
             }
         }
         let Some((place, ty)) = self.place(e) else {
@@ -971,13 +1114,22 @@ impl<'a> Sema<'a> {
         let loc = e.loc;
         match &e.kind {
             ExprKind::Ident(name) => {
-                if let Some(local) = self.lookup(name) {
-                    return Some((Place::Var(local.var.clone()), local.ty.clone()));
-                }
-                match self.globals.get(name).cloned() {
-                    Some(Global::Var(ty)) => Some((Place::Var(Var::Global(format!("_{name}"))), ty)),
+                let global = match self.lookup(name) {
+                    Some(Local::Var(var, ty)) => {
+                        return Some((Place::Var(var.clone()), ty.clone()));
+                    }
+                    Some(Local::Const(value)) => Some(Global::Const(value.clone())),
+                    None => self.globals.get(name).cloned(),
+                };
+                match global {
+                    Some(Global::Var(ty)) => {
+                        Some((Place::Var(Var::Global(format!("_{name}"))), ty))
+                    }
                     Some(Global::Const(_)) => {
-                        self.error(loc, format!("`{name}` is a constant; it has no place in memory"));
+                        self.error(
+                            loc,
+                            format!("`{name}` is a constant; it has no place in memory"),
+                        );
                         None
                     }
                     Some(Global::Function { .. }) => {
@@ -996,7 +1148,11 @@ impl<'a> Sema<'a> {
                     Ty::Ptr(to) => Some((Place::Deref(pointer), *to)),
                     Ty::Error => None,
                     other => {
-                        let what = if other == Ty::Lit { "a number".into() } else { a(&other) };
+                        let what = if other == Ty::Lit {
+                            "a number".into()
+                        } else {
+                            a(&other)
+                        };
                         self.error(loc, format!("`*` follows a pointer, and this is {what}"));
                         None
                     }
@@ -1015,7 +1171,10 @@ impl<'a> Sema<'a> {
                 Some((Place::Deref(pointer), *elem))
             }
             _ => {
-                self.error(loc, "this is not a place in memory: it cannot be assigned or pointed at");
+                self.error(
+                    loc,
+                    "this is not a place in memory: it cannot be assigned or pointed at",
+                );
                 None
             }
         }
@@ -1088,7 +1247,13 @@ impl<'a> Sema<'a> {
             UnOp::Neg | UnOp::BitNot => {
                 let value = self.rvalue(operand, hint);
                 let v = value.constant();
-                let apply = |v: i64| if op == UnOp::Neg { v.wrapping_neg() } else { !v };
+                let apply = |v: i64| {
+                    if op == UnOp::Neg {
+                        v.wrapping_neg()
+                    } else {
+                        !v
+                    }
+                };
                 let ty = value.ty.clone();
                 match (&ty, v) {
                     (Ty::Error, _) => value,
@@ -1198,6 +1363,11 @@ impl<'a> Sema<'a> {
             return self.wrong(loc, "this divides by zero");
         }
         if let (Some(vx), Some(vy)) = (x.constant(), y.constant()) {
+            // A number without a type yet has no width to be shifted out
+            // of: `1 << 40` is too large, not zero.
+            if x.ty == Ty::Lit && op == Op::Shl && vy >= 32 && vx != 0 {
+                return self.wrong(loc, "this constant is too large");
+            }
             return match fold(op, vx, vy, &x.ty) {
                 Some(v) if x.ty == Ty::Lit && !(-(1 << 32)..=1 << 32).contains(&v) => {
                     self.wrong(loc, "this constant is too large")
@@ -1249,7 +1419,11 @@ impl<'a> Sema<'a> {
                 let x = self.rvalue(x, None);
                 let y = self.rvalue(y, None);
                 // a > b is b < a; a <= b is b >= a.
-                let (x, y) = if matches!(op, BinOp::Gt | BinOp::Le) { (y, x) } else { (x, y) };
+                let (x, y) = if matches!(op, BinOp::Gt | BinOp::Le) {
+                    (y, x)
+                } else {
+                    (x, y)
+                };
                 let Some((x, y)) = self.unify(x, y, loc, Mode::Compare) else {
                     return self.silent(loc);
                 };
@@ -1305,14 +1479,26 @@ impl<'a> Sema<'a> {
             (Ty::Lit, _) => Self::retype(y, &Ty::U8),
             (ty, _) if ty.is_int() && ty.wide() => Self::narrow(y, &Ty::U8),
             (ty, _) if ty.is_int() => Self::retype(y, &Ty::U8),
-            (ty, _) => return self.wrong(y.loc, format!("a shift count is a number, and this is {}", a(ty))),
+            (ty, _) => {
+                return self.wrong(
+                    y.loc,
+                    format!("a shift count is a number, and this is {}", a(ty)),
+                )
+            }
         };
-        let x = if count.ty == Ty::Lit { x } else { self.settle(x, hint) };
+        let x = if count.ty == Ty::Lit {
+            x
+        } else {
+            self.settle(x, hint)
+        };
         if !x.ty.is_int() && x.ty != Ty::Lit {
             if x.ty == Ty::Error {
                 return x;
             }
-            return self.wrong(loc, format!("only numbers can be shifted, and this is {}", a(&x.ty)));
+            return self.wrong(
+                loc,
+                format!("only numbers can be shifted, and this is {}", a(&x.ty)),
+            );
         }
         let op = match op {
             BinOp::Shl => Op::Shl,
@@ -1365,7 +1551,13 @@ impl<'a> Sema<'a> {
         self.arithmetic(op, x, y, loc)
     }
 
-    fn assign(&mut self, op: Option<BinOp>, target: &ast::Expr, value: &ast::Expr, loc: Loc) -> Expr {
+    fn assign(
+        &mut self,
+        op: Option<BinOp>,
+        target: &ast::Expr,
+        value: &ast::Expr,
+        loc: Loc,
+    ) -> Expr {
         let Some((place, ty)) = self.place(target) else {
             // Still read the other side: it may have errors of its own.
             self.expr(value, None);
@@ -1373,7 +1565,10 @@ impl<'a> Sema<'a> {
         };
         if !ty.scalar() {
             self.expr(value, None);
-            return self.wrong(loc, "an array cannot be assigned as a whole; assign its elements");
+            return self.wrong(
+                loc,
+                "an array cannot be assigned as a whole; assign its elements",
+            );
         }
         let value = self.rvalue(value, Some(&ty));
         let value = match op {
@@ -1425,7 +1620,11 @@ impl<'a> Sema<'a> {
                 1 => "1 argument".to_string(),
                 n => format!("{n} arguments"),
             };
-            let given = if args.len() == 1 { "1 is given".to_string() } else { format!("{} are given", args.len()) };
+            let given = if args.len() == 1 {
+                "1 is given".to_string()
+            } else {
+                format!("{} are given", args.len())
+            };
             return self.wrong(loc, format!("`{name}` takes {takes} and {given}"));
         }
         let mut values = Vec::new();

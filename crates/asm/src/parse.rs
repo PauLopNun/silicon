@@ -133,7 +133,10 @@ pub(crate) fn parse_line(
     while let (Some(Tok::Ident(name)), Some(Tok::Punct(':'))) = (cur.peek(), cur.peek_at(1)) {
         let col = cur.col();
         let full = define(name, scope, col)?;
-        if !name.starts_with('.') {
+        // Only a plain name begins a new scope. `first.loop:` is a local
+        // label of `first` spelled in full, wherever it is written, and
+        // the local labels after it still belong to the label above.
+        if !name.contains('.') {
             scope.clone_from(&full);
         }
         cur.advance();

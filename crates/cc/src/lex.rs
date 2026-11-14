@@ -234,7 +234,10 @@ impl<'a> Lexer<'a> {
             text.push('\n');
             text.extend(line.iter());
         }
-        Err(self.error(at, "this `asm {` is never closed by a `}` at the start of a line"))
+        Err(self.error(
+            at,
+            "this `asm {` is never closed by a `}` at the start of a line",
+        ))
     }
 
     fn include(&mut self, from: usize, at: Loc, line: &[char], depth: usize) -> Result<()> {
@@ -302,9 +305,10 @@ impl<'a> Lexer<'a> {
     }
 }
 
-/// `42`, `0x2a`, `0b101010`.
+/// `42`, `0x2a`, `0b101010`; digits may be grouped with `_`, as in the
+/// assembler: `0b1100_1010`.
 fn number(text: &str) -> Option<i64> {
-    let lower = text.to_ascii_lowercase();
+    let lower = text.to_ascii_lowercase().replace('_', "");
     let value = if let Some(hex) = lower.strip_prefix("0x") {
         i64::from_str_radix(hex, 16).ok()?
     } else if let Some(bin) = lower.strip_prefix("0b") {
@@ -362,21 +366,45 @@ mod tests {
                 Punct(";"),
             ]
         );
-        assert_eq!(toks("a+++b"), [Ident("a".into()), Punct("++"), Punct("+"), Ident("b".into())]);
-        assert_eq!(toks(r#""hi\n" "\x41\0""#), [Str(b"hi\n".to_vec()), Str(vec![0x41, 0])]);
+        assert_eq!(
+            toks("a+++b"),
+            [
+                Ident("a".into()),
+                Punct("++"),
+                Punct("+"),
+                Ident("b".into())
+            ]
+        );
+        assert_eq!(
+            toks(r#""hi\n" "\x41\0""#),
+            [Str(b"hi\n".to_vec()), Str(vec![0x41, 0])]
+        );
     }
 
     #[test]
     fn positions_are_lines_and_columns() {
         let tokens = lex(&[("a.c", "u8 x;\n\n  x = 1;")]).unwrap();
         let at: Vec<(u32, u32)> = tokens.iter().map(|t| (t.loc.line, t.loc.col)).collect();
-        assert_eq!(at, [(1, 1), (1, 4), (1, 5), (3, 3), (3, 5), (3, 7), (3, 8), (3, 8)]);
+        assert_eq!(
+            at,
+            [
+                (1, 1),
+                (1, 4),
+                (1, 5),
+                (3, 3),
+                (3, 5),
+                (3, 7),
+                (3, 8),
+                (3, 8)
+            ]
+        );
     }
 
     #[test]
     fn asm_blocks_are_kept_as_they_are() {
         use Tok::*;
-        let source = "void f() {\n    asm {\n        ld a, '}'   ; a } here\n.loop:  jmp .loop\n    } x;\n}";
+        let source =
+            "void f() {\n    asm {\n        ld a, '}'   ; a } here\n.loop:  jmp .loop\n    } x;\n}";
         assert_eq!(
             toks(source),
             [
@@ -393,20 +421,30 @@ mod tests {
         );
         let tokens = lex(&[("a.c", source)]).unwrap();
         assert_eq!((tokens[5].loc.line, tokens[5].loc.col), (2, 5));
-        assert_eq!((tokens[6].loc.line, tokens[6].loc.col), (5, 7), "after the block");
+        assert_eq!(
+            (tokens[6].loc.line, tokens[6].loc.col),
+            (5, 7),
+            "after the block"
+        );
         assert_eq!(tokens[8].loc.line, 6);
         // On one line.
         assert_eq!(
             toks("asm { hlt } y"),
             [Asm("      hlt ".into()), Ident("y".into())]
         );
-        assert!(lex(&[("a.c", "asm {\n hlt\n")]).unwrap_err().message.contains("never closed"));
+        assert!(lex(&[("a.c", "asm {\n hlt\n")])
+            .unwrap_err()
+            .message
+            .contains("never closed"));
     }
 
     #[test]
     fn includes_are_read_in_place_and_only_once() {
         let files = [
-            ("game/main.c", "#include \"../lib/io.h\"\n#include \"util.h\"\nu8 a;"),
+            (
+                "game/main.c",
+                "#include \"../lib/io.h\"\n#include \"util.h\"\nu8 a;",
+            ),
             ("lib/io.h", "u8 b;"),
             ("game/util.h", "#include \"../lib/io.h\"\nu8 c;"),
         ];
@@ -430,12 +468,29 @@ mod tests {
         };
         assert_eq!(err("u8 x = 12ab;"), (1, 8, "`12ab` is not a number".into()));
         assert_eq!(err("\n  x = @;"), (2, 7, "unexpected character `@`".into()));
-        assert_eq!(err("x = \"open"), (1, 5, "a string needs a closing `\"`".into()));
-        assert_eq!(err("/* open"), (1, 1, "a `/*` comment is never closed".into()));
-        assert_eq!(err("#include \"nope.h\""), (1, 1, "cannot read `nope.h`: no such file".into()));
-        assert_eq!(err("#define X 1").2, "the only `#` line there is is `#include \"file\"`");
+        assert_eq!(
+            err("x = \"open"),
+            (1, 5, "a string needs a closing `\"`".into())
+        );
+        assert_eq!(
+            err("/* open"),
+            (1, 1, "a `/*` comment is never closed".into())
+        );
+        assert_eq!(
+            err("#include \"nope.h\""),
+            (1, 1, "cannot read `nope.h`: no such file".into())
+        );
+        assert_eq!(
+            err("#define X 1").2,
+            "the only `#` line there is is `#include \"file\"`"
+        );
         assert_eq!(err("x = 99999999999;").2, "`99999999999` is not a number");
-        let missing = Lexer::new(&std::collections::BTreeMap::new()).run("m.c").unwrap_err();
-        assert_eq!(missing.to_string(), "m.c:1:1: error: cannot read `m.c`: no such file");
+        let missing = Lexer::new(&std::collections::BTreeMap::new())
+            .run("m.c")
+            .unwrap_err();
+        assert_eq!(
+            missing.to_string(),
+            "m.c:1:1: error: cannot read `m.c`: no such file"
+        );
     }
 }
