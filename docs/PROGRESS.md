@@ -53,9 +53,7 @@ built page at desktop and phone size.
 
 Still to do for M4:
 
-1. **Wires between blocks clutter what is below them**: the trunks of a
-   module run above its children's lids and hide their names. Fade a
-   module's wires as the camera goes into one of its children.
+1. ~~Wires between blocks clutter what is below them~~ — done: a module's wires fade in with its lid and down to a faint trace once the camera goes into one of its parts; they are drawn after the lids and before the letters, so names stay readable.
 2. Page checks as a script in the repository and in CI (load, every
    program runs, the screen is still while nothing is held, zoom in and
    out, no console errors), on top of `browser.mjs`.

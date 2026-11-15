@@ -66,6 +66,22 @@ describe('updateLod', () => {
     }
   });
 
+  it('says how far the camera has gone into one of the parts of each module', () => {
+    for (const distance of [5, 20, 60, 150, 400, 1000, 1e6]) {
+      look(above(layout, moduleAt(tree, 'cpu/alu/adder'), distance));
+      for (let m = 0; m < tree.count; m++) {
+        const children = tree.children[m]!;
+        expect(lod.entered[m]).toBe(Math.max(0, ...children.map((c) => lod.open[c]!)));
+      }
+    }
+    // Close over the adder: in the CPU, in the ALU and in the adder.
+    look(above(layout, moduleAt(tree, 'cpu/alu/adder'), 5));
+    for (const path of ['cpu', 'cpu/alu', 'cpu/alu/adder']) expect(lod.entered[moduleAt(tree, path)]).toBe(1);
+    // From far away nothing has been entered.
+    look(above(layout, 0, 1e6));
+    expect(Array.from(lod.entered).every((v) => v === 0)).toBe(true);
+  });
+
   it('is open when the eye is inside the block', () => {
     const r = rectOf(layout, 0);
     updateLod(tree, layout, [r.x + r.w / 2, r.y + r.h / 2, layout.lidZ[0]! / 2], focal, lod);

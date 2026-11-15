@@ -20,6 +20,11 @@ export interface Lod {
    * entirely hidden and need not be drawn.
    */
   seen: Float32Array;
+  /**
+   * Per module: how far the camera has gone into one of its parts: the
+   * `open` of its most open child. 0 for a module with no modules inside.
+   */
+  entered: Float32Array;
 }
 
 /** A module starts to open when it looks this large, in pixels, and is fully open at the second size. */
@@ -43,7 +48,11 @@ export function lodRange(viewport: { width: number; height: number }): LodRange 
 }
 
 export function createLod(tree: ModuleTree): Lod {
-  return { open: new Float32Array(tree.count), seen: new Float32Array(tree.count) };
+  return {
+    open: new Float32Array(tree.count),
+    seen: new Float32Array(tree.count),
+    entered: new Float32Array(tree.count),
+  };
 }
 
 /** 0 below `lo`, 1 above `hi`, and a smooth S in between. */
@@ -88,6 +97,12 @@ export function updateLod(
     // What cannot be seen is not measured: it stays closed, and so does
     // everything inside it.
     open[m] = visible === 0 ? 0 : smoothstep(range.opensAt, range.openAt, apparentSize(layout, m, eye, focal));
+  }
+  // Children come after their parents: one pass backwards gathers them.
+  lod.entered.fill(0);
+  for (let m = tree.count - 1; m > 0; m--) {
+    const parent = tree.parents[m]!;
+    lod.entered[parent] = Math.max(lod.entered[parent]!, open[m]!);
   }
 }
 

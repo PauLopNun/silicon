@@ -176,8 +176,7 @@ function afterRender(): void {
   // The gate engine runs exactly while gates are in sight: while one of the
   // CPU's blocks is open. With the CPU open and its blocks closed only the
   // wires between blocks show, and those are not worth a game at 2 frames/s.
-  let inside = 0;
-  for (const block of view.tree.children[0]!) inside = Math.max(inside, view.lod.open[block]! * view.lod.seen[block]!);
+  const inside = view.lod.entered[0]!;
   const engine = engineFor(mode, inside);
   if (state && engine !== state.engine && engine !== asked) {
     asked = engine;

@@ -50,6 +50,8 @@ const GATE_WIDTH = 0.56;
 const GATE_DEPTH = 0.44;
 /** Half the width of a wire, in units; never drawn thinner than about a pixel. */
 const WIRE_HALF = 0.035;
+/** How much of a module's wires is left once the camera is inside one of its parts. */
+const WIRE_FADED = '0.12';
 
 /** The glyph sheet: printable ASCII, sixteen to a row. */
 const SHEET_COLUMNS = 16;
@@ -79,6 +81,7 @@ const COMMON = /* glsl */ `
     return vec3((at.xy - uEye.xy) + (at.zw - uEye.zw), z - uEyeZ);
   }
   // r: how open the module is. g: how much of it is seen. b: how busy.
+  // a: how far the camera has gone into one of its parts.
   vec4 moduleState(float module) {
     int i = int(module + 0.5);
     return texelFetch(uModules, ivec2(i % ${STATE_WIDTH}, i / ${STATE_WIDTH}), 0);
@@ -212,9 +215,16 @@ const WIRE_VERTEX = /* glsl */ `
   varying float vLevel;
   varying float vBusy;
   varying float vCover;
+  varying float vAlpha;
   void main() {
     vec4 state = moduleState(aWire.w);
-    if (state.r * state.g == 0.0) { gl_Position = NOWHERE; return; }
+    // A module's wires appear as its lid fades, and fall back to a faint
+    // trace once the camera goes into one of its parts (alpha channel):
+    // there the wires inside that part are what matters, and the ones
+    // passing over it would hide it.
+    float alpha = state.r * state.g * mix(1.0, ${WIRE_FADED}, state.a);
+    if (alpha < 0.01) { gl_Position = NOWHERE; return; }
+    vAlpha = alpha;
     vec3 a = fromEye(aA, aWire.x);
     vec3 b = fromEye(aB, aWire.y);
     vec3 along = normalize(b - a);
@@ -240,13 +250,14 @@ const WIRE_FRAGMENT = /* glsl */ `
   varying float vLevel;
   varying float vBusy;
   varying float vCover;
+  varying float vAlpha;
   void main() {
     vec3 colour = mix(vec3(0.11, 0.155, 0.24), vec3(1.0, 0.70, 0.28), step(0.5, vLevel));
     // A wire that has been switching glows, whatever its level this instant.
     colour += vec3(0.95, 0.50, 0.12) * vBusy * uGlow * 0.55;
     // One too thin to be seen properly sinks towards the floor instead of sparkling.
     colour = mix(vec3(0.05, 0.07, 0.11), colour, mix(0.45, 1.0, vCover));
-    gl_FragColor = vec4(stale(colour), 1.0);
+    gl_FragColor = vec4(stale(colour), vAlpha);
   }
 `;
 
@@ -555,7 +566,15 @@ export class SceneView {
       ribbon.setAttribute('position', new THREE.Float32BufferAttribute([0, -1, 0, 1, -1, 0, 0, 1, 0, 1, 1, 0], 3));
       ribbon.setIndex([0, 1, 2, 2, 1, 3]);
       const geometry = instanced(ribbon, routing.count, { aA: [a, 4], aB: [b, 4], aWire: [wire, 4] });
-      add(geometry, material(WIRE_VERTEX, WIRE_FRAGMENT, { side: THREE.DoubleSide }), 2);
+      // After the lids and without depth: a module's wires run above every
+      // lid that can still be seen inside it, so drawing them later is
+      // drawing them in front. The letters come after them, and so stay
+      // readable where a wire crosses a name.
+      add(
+        geometry,
+        material(WIRE_VERTEX, WIRE_FRAGMENT, { side: THREE.DoubleSide, transparent: true, depthWrite: false }),
+        3.5,
+      );
     }
 
     // ── lids: a box per module, lowest first ──
@@ -678,6 +697,7 @@ export class SceneView {
       // Rounded up: something seen at all is never taken for hidden.
       state[m * 4 + 1] = Math.ceil(lod.seen[m]! * 255);
       state[m * 4 + 2] = this.busy[m]!;
+      state[m * 4 + 3] = Math.round(lod.entered[m]! * 255);
     }
     this.modules.texture.needsUpdate = true;
 
