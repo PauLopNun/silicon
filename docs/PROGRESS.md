@@ -10,14 +10,59 @@ Read this and `CLAUDE.md` at the start of every session.
 | M1 — ISA and hardware design | **done** (2026-11-13) |
 | M2 — Simulation engines | **done** (2026-11-13) |
 | M3 — Toolchain and programs | **done** (2026-11-14) |
-| M4 — 3D visualization | next |
+| M4 — 3D visualization | **in progress** |
 | M5 — Learning tools | — |
 | M6 — Polish and launch | — |
 
-Everything is on `main`. CI runs on pushes to `main`; its last run (the
-commit before M3 was closed) failed at `cargo fmt --check` on the compiler's
-files, which is fixed in the commits that close M3. Those were verified
-locally on Windows and **have not been pushed**, so CI has not seen them.
+Everything is on `main` and pushed (2026-11-15).
+
+## M4 — where it stands (2026-11-15)
+
+Done, on `main`:
+
+- **The scene** (`web/src/scene/`): the CPU drawn from its module tree. Every
+  module is a block whose lid fades away as it grows on screen, showing its
+  parts, down to single gates with their pins and the wires between them.
+  Six draw calls; the state of the whole circuit is two small textures
+  (one texel per wire, one per module). Positions are whole parts plus
+  rests subtracted from the eye in the shader (camera-relative rendering).
+- **Layout** from the tree, deterministic: a packer for everything, a hand
+  floor plan for `cpu` and `cpu/regs` (`floorplan.ts`, checked against the
+  real netlist by a test).
+- **Wires** routed as trunks and branches at the height of the lowest module
+  holding all their gates. A test checks on the real CPU that every wire is
+  one connected piece reaching exactly its pins.
+- **Wire activity**: `sim-gate` counts changes per wire at a cost of ~20%
+  of its speed (level and count share one word; see its comment for the
+  three measurements). The page gets an activity byte per wire with every
+  frame; busy wires glow and busy blocks warm up.
+- **Camera**: drag, wheel/pinch, right-drag to turn, click a block to fly
+  into it, double-click a gate; breadcrumb trail; `?at=cpu/alu/adder8/fa3`.
+- **Engine by view** (`auto`, the default): the gate engine while a block of
+  the CPU is at least half open, the fast one otherwise. The page opens on
+  the fast engine at 4 MHz.
+- `web/scripts/browser.mjs`: the installed Chrome driven over the DevTools
+  protocol with nothing to install; `look.mjs` takes screenshots of the
+  built page. (Adding Playwright as a dependency was refused by the
+  permission system in this environment, so this replaces it.)
+
+Verified: `cargo test --workspace` 280 tests; clippy and fmt clean; Vitest
+115 tests (layout, LOD with a no-popping sweep over a tree six levels deep,
+camera, picking, routing, and the real CPU's scene); screenshots of the
+built page at desktop and phone size.
+
+Still to do for M4:
+
+1. **Wires between blocks clutter what is below them**: the trunks of a
+   module run above its children's lids and hide their names. Fade a
+   module's wires as the camera goes into one of its children.
+2. Page checks as a script in the repository and in CI (load, every
+   program runs, the screen is still while nothing is held, zoom in and
+   out, no console errors), on top of `browser.mjs`.
+3. ADR for the decisions above (LOD by projected size, engine by view,
+   activity encoding), ARCHITECTURE §5–6 brought up to date.
+4. Frame-time measurement on the whole design (budget 16.6 ms).
+5. Not verified: Firefox, Safari, a real touch screen.
 
 ## M3 — what was done
 

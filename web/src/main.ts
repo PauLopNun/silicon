@@ -173,8 +173,11 @@ function afterRender(): void {
   // Once the camera is at rest the address bar leads back to this place.
   if (!nav.moving) replaceSearch(searchWith(location.search, 'at', focus > 0 ? view.tree.paths[focus] : undefined));
 
-  // The gate engine runs exactly while the inside of the CPU is in sight.
-  const inside = view.lod.open[0]! * view.lod.seen[0]!;
+  // The gate engine runs exactly while gates are in sight: while one of the
+  // CPU's blocks is open. With the CPU open and its blocks closed only the
+  // wires between blocks show, and those are not worth a game at 2 frames/s.
+  let inside = 0;
+  for (const block of view.tree.children[0]!) inside = Math.max(inside, view.lod.open[block]! * view.lod.seen[block]!);
   const engine = engineFor(mode, inside);
   if (state && engine !== state.engine && engine !== asked) {
     asked = engine;

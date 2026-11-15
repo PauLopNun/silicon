@@ -16,12 +16,14 @@ export type EngineMode = 'auto' | EngineKind;
 /**
  * The engine that should be running.
  *
- * @param inside how much of the inside of the CPU is in sight, from 0 (its
- *   lid is shut, or it is hidden) to 1
+ * @param inside how much of the gates of the CPU is in sight, from 0 (every
+ *   block of the CPU is shut, or hidden) to 1
  */
 export function engineFor(mode: EngineMode, inside: number): EngineKind {
   if (mode !== 'auto') return mode;
-  return inside > 0 ? 'gate' : 'fast';
+  // Half open: gates glimpsed through a lid that is still fading out are
+  // shown as they were last computed, not worth slowing the program for.
+  return inside >= 0.5 ? 'gate' : 'fast';
 }
 
 /** What a link asks for with `?engine=…`; anything else, or nothing, is `auto`. */
@@ -36,8 +38,9 @@ export function engineNote(mode: EngineMode, engine: EngineKind, inside: number)
       ? 'You are looking inside the CPU, so every gate is being simulated and the program runs slower.'
       : 'Every gate is being simulated, so the program runs slower.';
   }
-  if (inside > 0) return 'The fast engine does not compute individual gates: these wires are as the gate engine left them.';
-  return mode === 'auto'
-    ? 'Nothing inside the CPU is in sight, so the fast engine runs the program at full speed. Zoom into the CPU to see its gates work.'
-    : 'The fast engine runs the program at full speed.';
+  if (mode === 'auto') {
+    return 'No gate is plainly in sight, so the fast engine runs the program at full speed. Zoom into a block to see its gates work.';
+  }
+  if (inside > 0) return 'The fast engine does not compute individual gates: these are as the gate engine left them.';
+  return 'The fast engine runs the program at full speed.';
 }
