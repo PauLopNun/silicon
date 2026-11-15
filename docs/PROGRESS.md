@@ -12,9 +12,27 @@ Read this and `CLAUDE.md` at the start of every session.
 | M3 — Toolchain and programs | **done** (2026-11-14) |
 | M4 — 3D visualization | **in progress** |
 | M5 — Learning tools | **done** (2026-11-15) |
-| M6 — Polish and launch | — |
+| M6 — Polish and launch | **in progress** |
 
 Everything is on `main` and pushed (2026-11-15).
+
+## M6 — where it stands (2026-11-15)
+
+Done: the README rewritten around the finished project, opening on an
+animation of the real page (`docs/media/zoom.png`, made by
+`web/scripts/hero.mjs`); ADR 0015; a Pages workflow ready to publish the
+live demo, run by hand only (`.github/workflows/pages.yml`).
+
+Launch checklist, in order:
+
+1. Check by hand in a real window: Chrome, Firefox, Safari, and a phone
+   (touch: drag, pinch, the computer's keys). Not done: only headless Chrome
+   so far.
+2. Measure the graphics card's share of a frame in a real window, zoomed out
+   over the whole CPU (the costliest view).
+3. Make the repository public; turn Pages on and run the Pages workflow;
+   add the push trigger; put the demo's link at the top of the README.
+4. Repository description, topics and social preview image.
 
 ## M5 — where it stands (2026-11-15)
 
