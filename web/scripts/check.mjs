@@ -181,6 +181,41 @@ await check('the memory made of gates writes a word and reads it back', '?view=r
   await page.until(`document.body.dataset.showing === 'cpu' && new URLSearchParams(location.search).get('view') === null`, 5000, 'the CPU back on view');
 });
 
+await check('the guided tour goes everywhere it says and sees tasks done', '', async (page) => {
+  await page.evaluate(`document.getElementById('learn').click()`);
+  await page.until(`!document.getElementById('lesson').hidden`, 5000, 'the tour');
+  const steps = Number((await page.evaluate(text('lesson-count'))).split('/')[1]);
+  expect(steps >= 8, `only ${steps} steps`);
+  for (let i = 1; i <= steps; i++) {
+    expect((await page.evaluate(text('lesson-count'))).startsWith(`${i} /`), `not at step ${i}`);
+    const title = await page.evaluate(text('lesson-title'));
+    // The camera arrives somewhere in the scene the step is about.
+    await page.sleep(1600);
+    const where = await page.evaluate(`[document.body.dataset.showing, document.body.dataset.focus]`);
+    expect(where[1] && where[1].startsWith(where[0]), `${title}: the camera is at ${where}`);
+    if (title === 'Memory') {
+      expect(where[0] === 'ram', 'the memory step does not show the memory');
+      const click = (selector) => page.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+      await click('#ram-addr [data-addr="5"]');
+      const now = await page.evaluate(text('ram-data-value'));
+      // Set the bits to 1010 from whatever they are.
+      for (const [bit, want] of [[3, '1'], [2, '0'], [1, '1'], [0, '0']]) {
+        if (now[3 - bit] !== want) await click(`#ram-data [data-bit="${bit}"]`);
+      }
+      if ((await page.evaluate(`document.getElementById('ram-write').getAttribute('aria-pressed')`)) !== 'true') {
+        await click('#ram-write');
+      }
+      await click('#ram-clock');
+      await page.until(`'done' in document.getElementById('lesson-task').dataset`, 5000, 'the memory task to be seen done');
+    }
+    if (title === 'One instruction at a time') {
+      await page.until(`${text('speed')} === 'paused' && ${engine} === 'gate'`, 8000, 'explain mode');
+    }
+    await page.evaluate(`document.getElementById('lesson-next').click()`);
+  }
+  await page.until(`document.getElementById('lesson').hidden`, 5000, 'the tour to close at the end');
+});
+
 // ── the scene ──
 
 await check('the page opens on the whole CPU, on the fast engine at full speed', '', async (page) => {

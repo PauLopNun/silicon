@@ -6,6 +6,7 @@
  */
 import { WindowRate } from './clock';
 import { blocksAtWork, headline, memoryText, parseExplanation } from './explain';
+import { LESSON, type LessonContext } from './lessons';
 import { searchWith } from './link';
 import { appendConsole, consoleText, searchFor, type ProgramInfo } from './programs';
 import {
@@ -426,6 +427,7 @@ function showExplanation(msg: FrameState): void {
   panel.hidden = msg.running;
   if (msg.running || msg.explain === shownExplanation) return;
   shownExplanation = msg.explain;
+  lessonStepped++;
   const e = parseExplanation(msg.explain);
   el('explain-head').textContent = headline(e);
   el('explain-memory').textContent = `This cycle ${memoryText(e.signals)}.`;
@@ -494,6 +496,7 @@ function show(msg: FrameState): void {
   el('run').textContent = msg.running ? 'Pause' : 'Run';
   el<HTMLButtonElement>('step').disabled = msg.running;
   showExplanation(msg);
+  showLessonTask();
 }
 
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -628,6 +631,90 @@ el('ram-write').addEventListener('click', () => {
   sendRamInputs();
 });
 el('ram-clock').addEventListener('click', () => send({ type: 'ram-clock' }));
+
+// ───────────────────────────── the tour ───────────────────────────────
+
+/** The step of the guided tour on view, or -1 when there is none. */
+let lessonAt = -1;
+/** How many times the explanation moved on since the step began. */
+let lessonStepped = 0;
+
+function lessonContext(): LessonContext {
+  return {
+    focus: document.body.dataset.focus ?? '',
+    showing,
+    paused: state ? !state.running : false,
+    engine: state?.engine ?? 'fast',
+    chosen: scene && chosenGate >= 0 ? gatePath(scene.view.tree, chosenGate) : '',
+    broken: faults.size,
+    ramOut: state?.ram.out ?? 0,
+    ramWords: state ? Array.from(state.ram.words) : [],
+    stepped: lessonStepped,
+  };
+}
+
+/** Go to a step of the tour: the scene, the place, the words. */
+function enterLesson(index: number): void {
+  const step = LESSON[index];
+  if (!step) return closeLesson();
+  lessonAt = index;
+  lessonStepped = 0;
+  document.body.dataset.lesson = String(index);
+  el('lesson').hidden = false;
+  el('lesson-count').textContent = `${index + 1} / ${LESSON.length}`;
+  el('lesson-title').textContent = step.title;
+  el('lesson-text').replaceChildren(
+    ...step.text.split('\n\n').map((paragraph) => {
+      const p = document.createElement('p');
+      p.textContent = paragraph;
+      return p;
+    }),
+  );
+  el<HTMLButtonElement>('lesson-back').disabled = index === 0;
+  el('lesson-next').textContent = index === LESSON.length - 1 ? 'finish' : 'next';
+  if (step.view !== showing) setShowing(step.view);
+  const current = active();
+  if (current) {
+    const place = resolvePath(current.view.tree, step.at);
+    if (place && place.gate >= 0) current.nav.flyToGate(place.gate);
+    else if (place && place.module > 0) current.nav.flyToModule(place.module);
+    else current.nav.flyTo(current.nav.home());
+  }
+  if (step.explain) {
+    send({ type: 'run', running: false });
+    setMode('gate');
+  } else if (state && !state.running) {
+    // A step that is not about explaining runs the computer again.
+    send({ type: 'run', running: true });
+    setMode('auto');
+  }
+  showLessonTask();
+}
+
+/** The step's task, ticked once the page sees it done. */
+function showLessonTask(): void {
+  const step = LESSON[lessonAt];
+  const task = el('lesson-task');
+  if (!step?.task) {
+    task.textContent = '';
+    return;
+  }
+  const done = step.task.done(lessonContext());
+  task.textContent = (done ? '✓ ' : '') + step.task.text;
+  if (done) task.dataset.done = '';
+  else delete task.dataset.done;
+}
+
+function closeLesson(): void {
+  lessonAt = -1;
+  el('lesson').hidden = true;
+  delete document.body.dataset.lesson;
+}
+
+el('learn').addEventListener('click', () => enterLesson(lessonAt >= 0 ? lessonAt : 0));
+el('lesson-next').addEventListener('click', () => enterLesson(lessonAt + 1));
+el('lesson-back').addEventListener('click', () => enterLesson(lessonAt - 1));
+el('lesson-close').addEventListener('click', closeLesson);
 
 // A link can choose the program: ?program=bounce
 const wantedProgram = link.get('program');

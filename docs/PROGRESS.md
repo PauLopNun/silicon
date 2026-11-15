@@ -11,7 +11,7 @@ Read this and `CLAUDE.md` at the start of every session.
 | M2 — Simulation engines | **done** (2026-11-13) |
 | M3 — Toolchain and programs | **done** (2026-11-14) |
 | M4 — 3D visualization | **in progress** |
-| M5 — Learning tools | **in progress** |
+| M5 — Learning tools | **done** (2026-11-15) |
 | M6 — Polish and launch | — |
 
 Everything is on `main` and pushed (2026-11-15).
@@ -57,7 +57,17 @@ Chosen first: **explain mode**. Done, on `main`:
   bits, turns writing on and gives a clock edge, and every word shows its
   value on its block (`docs/media/m5-ram-of-gates.png`, `?view=ram`).
 
-Next for M5: guided lessons.
+- **A guided tour** (**Learn**, `web/src/lessons.ts`): nine steps from one NAND
+  to a running program: a gate, a full adder, a byte adder, the ALU, a
+  register, memory (on the memory made of gates), control, an instruction
+  cycle by cycle (explain mode), breaking a gate. The camera flies to each
+  place; some steps set a task and tick it when the page sees it done.
+  A test checks every place named against the real netlists and every
+  fact stated (nine NANDs to a full adder, eight flip-flops to a
+  register, 127 in all…); a page check walks the whole tour.
+
+**M5 is done** but for one known flaw: the tour's panel can cover the top of
+what the camera frames.
 
 ## M4 — where it stands (2026-11-15)
 

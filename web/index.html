@@ -93,6 +93,19 @@
       #ram-panel .row { gap: 4px; }
       #ram-panel button { min-width: 0; padding: 2px 9px; }
       #ram-panel b { color: var(--hot); font-weight: 600; }
+      #lesson { left: 12px; top: 52px; width: min(420px, calc(100% - 24px)); pointer-events: auto;
+        background: #0c111bf2; border: 1px solid var(--line); border-radius: 6px; padding: 12px 14px;
+        display: flex; flex-direction: column; gap: 8px; max-height: calc(100% - 64px); overflow-y: auto; }
+      #lesson[hidden] { display: none; }
+      #lesson header { display: flex; gap: 10px; align-items: baseline; }
+      #lesson-count { color: var(--dim); font-weight: 400; }
+      #lesson-title { color: var(--hot); font-weight: 600; letter-spacing: .05em; }
+      #lesson-text p { margin: 0 0 8px; color: var(--ink); }
+      #lesson-task { color: var(--ink); border-left: 2px solid var(--hot); padding-left: 8px; }
+      #lesson-task[data-done] { border-color: #5adb8a; color: #5adb8a; }
+      #lesson-task:empty { display: none; }
+      #lesson button { min-width: 0; padding: 3px 12px; }
+      body[data-lesson] #legend { display: none; }
       #top > .group button { min-width: 0; padding: 3px 9px; background: #0c111bd9; }
       #gate-panel button { min-width: 0; padding: 3px 9px; }
       #gate-name { color: var(--ink); overflow-wrap: anywhere; }
@@ -153,6 +166,7 @@
         <button id="run">Pause</button>
         <button id="reset">Reset</button>
         <button id="explain-start" title="Pause, compute every gate, and follow the CPU one cycle at a time">Explain</button>
+        <button id="learn" title="A guided tour, from one NAND gate to a running program">Learn</button>
       </div>
       <section id="explain" hidden aria-label="What the CPU does in this cycle">
         <div class="row">
@@ -192,6 +206,16 @@
         <button id="whole" title="Show the whole CPU (0)">whole</button>
         <div id="legend"><i style="background: var(--hot)"></i>wire or NAND at 1<i style="background: var(--state)"></i>flip-flop at 1</div>
       </div>
+      <section id="lesson" class="over" hidden aria-label="Guided tour">
+        <header><b id="lesson-count"></b> <span id="lesson-title"></span></header>
+        <div id="lesson-text"></div>
+        <p id="lesson-task"></p>
+        <div class="row">
+          <button id="lesson-back">back</button>
+          <button id="lesson-next">next</button>
+          <button id="lesson-close" title="Leave the tour">close</button>
+        </div>
+      </section>
       <div id="bottom" class="over">
         <div id="ram-panel" hidden>
           <p>
