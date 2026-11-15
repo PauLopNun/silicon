@@ -54,7 +54,10 @@ async function main(): Promise<void> {
 
   const publish = () => {
     const framebuffer = copy(machine.framebuffer_ptr(), machine.framebuffer_len());
+    // The levels now, and everything that changed since the last look.
+    machine.look_at_wires();
     const wires = copy(machine.wires_ptr(), machine.wires_len());
+    const activity = copy(machine.activity_ptr(), machine.activity_len());
     const arch = machine.arch_state();
     const written = machine.take_console();
     post(
@@ -69,10 +72,11 @@ async function main(): Promise<void> {
         frames: machine.frames(),
         framebuffer,
         wires,
+        activity,
         arch,
         console: written,
       },
-      [framebuffer.buffer, wires.buffer, arch.buffer, written.buffer],
+      [framebuffer.buffer, wires.buffer, activity.buffer, arch.buffer, written.buffer],
     );
     dirty = false;
     lastPublish = performance.now();

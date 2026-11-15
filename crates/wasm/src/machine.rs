@@ -18,21 +18,58 @@ pub const ARCH_STATE_BYTES: usize = 17;
 #[wasm_bindgen]
 pub struct Machine {
     core: Core,
+    /// The level of each wire, as of the last [`Machine::look_at_wires`].
+    levels: Vec<u8>,
+    /// How busy each wire had been until then, since the look before it.
+    activity: Vec<u8>,
+    /// The clock cycle at which the wires' changes began to be counted.
+    activity_since: u64,
+}
+
+/// How busy a wire has been, as one byte: 0 if it did not change at all,
+/// otherwise 1 to 255 on a square-root scale of changes per clock cycle,
+/// 255 being a change in every cycle. The square root keeps a wire that
+/// changed once in thousands of cycles apart from one that never did.
+pub fn activity_byte(toggles: u32, cycles: u64) -> u8 {
+    if toggles == 0 {
+        return 0;
+    }
+    let rate = (toggles as f64 / cycles.max(1) as f64).min(1.0);
+    ((255.0 * rate.sqrt()).round() as u8).max(1)
 }
 
 impl Machine {
     /// The constructor without the JavaScript error type, for native tests.
     pub fn with_program(program: &[u8]) -> Result<Machine, RomTooLarge> {
-        Ok(Machine {
-            core: Core::new(program)?,
-        })
+        let core = Core::new(program)?;
+        let wires = core.gate().sim().wire_count();
+        let mut machine = Machine {
+            core,
+            levels: vec![0; wires],
+            activity: vec![0; wires],
+            activity_since: 0,
+        };
+        machine.look_at_wires();
+        Ok(machine)
     }
 
     /// [`Machine::load`] without the JavaScript error type. The error is
     /// what the toolchain reported, one line per problem.
     pub fn load_named(&mut self, name: &str) -> Result<(), String> {
         let rom = rom_of(name)?;
-        self.core.load(&rom).map_err(|e| e.to_string())
+        self.core.load(&rom).map_err(|e| e.to_string())?;
+        self.activity_since = 0;
+        Ok(())
+    }
+
+    /// The activity buffer, for native tests.
+    pub fn activity(&self) -> &[u8] {
+        &self.activity
+    }
+
+    /// The level buffer, for native tests.
+    pub fn levels(&self) -> &[u8] {
+        &self.levels
     }
 }
 
@@ -78,6 +115,7 @@ impl Machine {
     /// Back to power-on. The program, the engine choice and held keys stay.
     pub fn reset(&mut self) {
         self.core.reset();
+        self.activity_since = 0;
     }
 
     /// Run this many clock cycles on the active engine.
@@ -128,14 +166,48 @@ impl Machine {
         self.core.board().framebuffer().len()
     }
 
-    /// Address of the wire levels of the gate-level CPU: one byte per wire,
-    /// 0 or 1. Live only while the gate engine is active.
+    /// Look at every wire of the gate-level CPU: note its level at this
+    /// instant, and how busy it has been since the last look. What was noted
+    /// is read through [`Machine::wires_ptr`] and [`Machine::activity_ptr`]
+    /// and stays as it is until the next look.
+    ///
+    /// The levels are where things stand; the activity is everything that
+    /// happened on the way, which at hundreds of thousands of cycles a
+    /// second is most of what there is to see. While the fast engine runs
+    /// the CPU it computes no wires: the levels stay as the gate engine left
+    /// them and the activity is all zero.
+    pub fn look_at_wires(&mut self) {
+        let now = self.core.board().cycles();
+        let cycles = now.saturating_sub(self.activity_since);
+        let sim = self.core.gate().sim();
+        for (byte, level) in self.levels.iter_mut().zip(sim.levels()) {
+            *byte = level;
+        }
+        for (byte, count) in self.activity.iter_mut().zip(sim.toggles()) {
+            *byte = activity_byte(count, cycles);
+        }
+        self.core.clear_wire_toggles();
+        self.activity_since = now;
+    }
+
+    /// Address of the wire levels as of the last [`Machine::look_at_wires`]:
+    /// one byte per wire, 0 or 1.
     pub fn wires_ptr(&self) -> *const u8 {
-        self.core.gate().sim().state().as_ptr()
+        self.levels.as_ptr()
     }
 
     pub fn wires_len(&self) -> usize {
-        self.core.gate().sim().state().len()
+        self.levels.len()
+    }
+
+    /// Address of the activity of the wires as of the last
+    /// [`Machine::look_at_wires`]: one byte per wire, see [`activity_byte`].
+    pub fn activity_ptr(&self) -> *const u8 {
+        self.activity.as_ptr()
+    }
+
+    pub fn activity_len(&self) -> usize {
+        self.activity.len()
     }
 
     /// Console output since the last call.
@@ -186,6 +258,32 @@ impl Machine {
         let netlist = self.core.gate().sim().netlist();
         let names: Vec<&str> = netlist.modules.iter().map(|m| m.name.as_str()).collect();
         names.join("\n")
+    }
+
+    /// The public name of a gate: `cpu/alu/adder8/fa3/nand2`.
+    pub fn gate_path(&self, gate: usize) -> String {
+        self.core.gate().sim().netlist().gate_path(gate)
+    }
+
+    /// Names of the probes (the groups of wires worth a label, such as
+    /// `cpu/pc:value`), by index, separated by newlines.
+    pub fn probe_names(&self) -> String {
+        let netlist = self.core.gate().sim().netlist();
+        let names: Vec<&str> = netlist.probes.iter().map(|p| p.name.as_str()).collect();
+        names.join("\n")
+    }
+
+    /// The wires of every probe, in the order of [`Machine::probe_names`]:
+    /// for each probe its number of wires, then the wires, least significant
+    /// bit first.
+    pub fn probe_wires(&self) -> Vec<u32> {
+        let netlist = self.core.gate().sim().netlist();
+        let mut out = Vec::new();
+        for probe in &netlist.probes {
+            out.push(probe.wires.len() as u32);
+            out.extend(probe.wires.iter().map(|w| w.0));
+        }
+        out
     }
 }
 
@@ -284,6 +382,101 @@ mod tests {
         for (i, &p) in parents.iter().enumerate().skip(1) {
             assert!(p >= 0 && (p as usize) < i);
         }
+    }
+
+    #[test]
+    fn activity_is_a_square_root_scale_of_changes_per_cycle() {
+        assert_eq!(activity_byte(0, 1000), 0);
+        // One change in a million cycles is still not nothing.
+        assert_eq!(activity_byte(1, 1_000_000), 1);
+        assert_eq!(activity_byte(1000, 1000), 255);
+        assert_eq!(activity_byte(250, 1000), 128);
+        // A wire can change twice in a cycle: that is as busy as it gets.
+        assert_eq!(activity_byte(2000, 1000), 255);
+        // A single step: whatever changed, changed in every cycle there was.
+        assert_eq!(activity_byte(1, 1), 255);
+        assert_eq!(activity_byte(1, 0), 255);
+        let mut last = 0;
+        for toggles in 0..=1000 {
+            let byte = activity_byte(toggles, 1000);
+            assert!(byte >= last);
+            last = byte;
+        }
+    }
+
+    #[test]
+    fn activity_is_what_the_wires_did_since_it_was_last_taken() {
+        let mut m = Machine::demo();
+        // The fast engine computes no wires.
+        m.run(10_000);
+        m.look_at_wires();
+        assert!(m.activity().iter().all(|&a| a == 0));
+        assert_eq!(m.activity_len(), m.wires_len());
+
+        // Handing the CPU to the gates is not activity either.
+        m.use_gate_engine(true);
+        m.look_at_wires();
+        assert!(m.activity().iter().all(|&a| a == 0));
+
+        m.run(5_000);
+        m.look_at_wires();
+        let busy = m.activity().iter().filter(|&&a| a > 0).count();
+        assert!(busy > 500, "{busy} wires changed");
+        // The constants never change.
+        assert_eq!(m.activity()[..2], [0, 0]);
+        // The lowest bit of the step counter changes more often than the
+        // highest bit of the stack pointer.
+        let gate = m.core.gate();
+        let (step0, sp15) = (gate.state_wires().step[0], gate.state_wires().sp[15]);
+        assert!(m.activity()[step0.index()] > 100);
+        assert!(m.activity()[sp15.index()] < 10);
+
+        // Nothing ran since: nothing changed.
+        m.look_at_wires();
+        assert!(m.activity().iter().all(|&a| a == 0));
+
+        // One cycle: every wire that changed did so in the only cycle there was.
+        m.run(1);
+        m.look_at_wires();
+        assert!(m.activity().contains(&255));
+        assert!(m.activity().iter().all(|&a| a == 0 || a == 255));
+
+        // A reset is not activity, and the count of cycles starts again with it.
+        m.run(1_000);
+        m.reset();
+        m.look_at_wires();
+        assert!(m.activity().iter().all(|&a| a == 0));
+        m.run(100);
+        m.look_at_wires();
+        assert!(m.activity().iter().any(|&a| a > 0));
+    }
+
+    #[test]
+    fn gates_and_probes_have_their_public_names() {
+        let m = Machine::demo();
+        let gates = m.gate_table().len() / GATE_FIELDS;
+        assert!(m.gate_path(0).starts_with("cpu/"));
+        let last = m.gate_path(gates - 1);
+        assert!(last.contains("/nand") || last.contains("/dff"), "{last}");
+
+        let names: Vec<String> = m.probe_names().lines().map(String::from).collect();
+        let table = m.probe_wires();
+        let wires = m.wires_len() as u32;
+        let mut at = 0;
+        let mut pc = None;
+        for name in &names {
+            let n = table[at] as usize;
+            let probe = &table[at + 1..at + 1 + n];
+            assert!(probe.iter().all(|&w| w < wires), "{name}");
+            if name == "cpu/pc:value" {
+                pc = Some(probe.to_vec());
+            }
+            at += 1 + n;
+        }
+        assert_eq!(at, table.len());
+        let state = m.core.gate().state_wires();
+        let expected: Vec<u32> = state.pc.iter().map(|w| w.0).collect();
+        assert_eq!(pc, Some(expected));
     }
 
     #[test]

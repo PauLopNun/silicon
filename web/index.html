@@ -43,8 +43,10 @@
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .group { display: flex; }
       .group button { border-radius: 0; min-width: 64px; }
+      .group button + button { border-left: 0; }
       .group button:first-child { border-radius: 6px 0 0 6px; }
-      .group button:last-child { border-radius: 0 6px 6px 0; border-left: 0; }
+      .group button:last-child { border-radius: 0 6px 6px 0; }
+      .group button { min-width: 52px; }
       button, select { font: inherit; color: var(--ink); background: #0c111b; border: 1px solid var(--line);
         border-radius: 6px; padding: 7px 12px; cursor: pointer; min-width: 64px; }
       button:disabled { color: var(--dim); cursor: default; }
@@ -52,16 +54,28 @@
       button:focus-visible, select:focus-visible { outline: 2px solid var(--hot); outline-offset: 2px; }
       p { margin: 0; color: var(--dim); }
       #status { margin-top: auto; }
-      #main { position: relative; min-width: 0; min-height: 0; }
-      #gates { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
-      #labels { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
-      #labels span { position: absolute; color: var(--dim); white-space: nowrap; overflow: hidden;
-        text-overflow: ellipsis; padding-left: 2px; }
-      #wires-note { position: absolute; left: 50%; bottom: 20px; transform: translateX(-50%);
-        background: #0c111bee; border: 1px solid var(--line); border-radius: 6px; padding: 8px 14px;
-        color: var(--ink); text-align: center; max-width: calc(100% - 32px); }
-      #legend { position: absolute; right: 16px; top: 12px; color: var(--dim); }
+      #main { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
+      /* The scene takes every gesture made on it: nothing scrolls or zooms the page from here. */
+      #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
+        cursor: grab; }
+      #scene:active { cursor: grabbing; }
+      /* What lies over the scene lets the pointer through, except its buttons. */
+      .over { position: absolute; pointer-events: none; }
+      .over button { pointer-events: auto; }
+      #top { left: 12px; right: 12px; top: 10px; display: flex; align-items: flex-start; gap: 12px; }
+      #crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+      #crumbs button, #whole { min-width: 0; padding: 3px 9px; background: #0c111bd9; }
+      #crumbs button + button::before { content: "›"; color: var(--dim); margin: 0 9px 0 -4px; }
+      #crumbs button + button { border-left: 0; border-radius: 0 6px 6px 0; margin-left: -6px; padding-left: 12px; }
+      #crumbs button[aria-current] { color: var(--hot); }
+      #legend { margin-left: auto; color: var(--dim); white-space: nowrap; text-align: right; }
       #legend i { display: inline-block; width: 9px; height: 9px; margin: 0 5px 0 12px; }
+      #bottom { left: 12px; right: 12px; bottom: 10px; display: flex; flex-direction: column; gap: 6px;
+        align-items: flex-start; }
+      #hover { background: #0c111bee; border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px;
+        color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
+      #engine-note { color: var(--dim); max-width: 62ch; text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg); }
+      #gestures { color: var(--dim); opacity: .75; text-shadow: 0 0 6px var(--bg); }
       @media (max-width: 760px) {
         body { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
         #side { border-right: 0; border-bottom: 1px solid var(--line); }
@@ -106,6 +120,7 @@
       <pre id="registers" aria-label="CPU registers"></pre>
       <div class="row">
         <div class="group" role="group" aria-label="Engine">
+          <button id="use-auto" aria-pressed="true" title="The gate engine while the inside of the CPU is in sight, the fast one otherwise">auto</button>
           <button id="use-fast" aria-pressed="false" title="Arithmetic model, proven equivalent">fast</button>
           <button id="use-gate" aria-pressed="false" title="Every NAND gate and flip-flop is simulated">gate</button>
         </div>
@@ -124,18 +139,22 @@
         </select>
       </div>
       <p>
-        On the gate engine every gate on the right is computed for every clock cycle, so everything
-        runs slower.
+        On the gate engine every gate of the CPU is computed for every clock cycle, so everything
+        runs slower. Left on auto, it runs while you are looking inside the CPU.
       </p>
       <p id="status" role="status">starting simulation…</p>
     </section>
     <section id="main">
-      <canvas id="gates" aria-label="Every gate of the CPU, lit when its output is 1"></canvas>
-      <div id="labels" aria-hidden="true"></div>
-      <div id="legend"><i style="background: var(--hot)"></i>NAND output = 1<i style="background: var(--state)"></i>flip-flop = 1</div>
-      <div id="wires-note" hidden>
-        The fast engine does not compute individual gates, so this view is frozen. Switch to the
-        <b>gate</b> engine to see them live.
+      <canvas id="scene" aria-label="The CPU, from the whole of it down to every gate; a gate or a wire is lit when it is at 1"></canvas>
+      <div id="top" class="over">
+        <nav id="crumbs" aria-label="Where the camera is"></nav>
+        <button id="whole" title="Show the whole CPU (0)">whole</button>
+        <div id="legend"><i style="background: var(--hot)"></i>wire or NAND at 1<i style="background: var(--state)"></i>flip-flop at 1</div>
+      </div>
+      <div id="bottom" class="over">
+        <div id="hover" role="status" hidden></div>
+        <div id="engine-note" role="status"></div>
+        <div id="gestures">drag to move · wheel or pinch to zoom · right-drag or shift-drag to turn · click a block to go in</div>
       </div>
     </section>
     <script type="module" src="/src/main.ts"></script>

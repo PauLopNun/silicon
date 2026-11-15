@@ -47,6 +47,18 @@ impl GateCpu {
         &self.state
     }
 
+    /// Per wire of the netlist: how many times its level has changed since
+    /// [`GateCpu::clear_toggles`]. Loading a state is not counted: the
+    /// counts are of what the circuit did, not of what was done to it.
+    pub fn toggles(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.sim.toggles()
+    }
+
+    /// Start counting changes afresh.
+    pub fn clear_toggles(&mut self) {
+        self.sim.clear_toggles();
+    }
+
     /// Did the last cycle load an opcode into the instruction register?
     pub fn fetched(&self) -> bool {
         self.fetched
@@ -122,6 +134,8 @@ impl Engine for GateCpu {
         self.sim.set_word(&w.t, state.t as u64);
         self.sim.set_word(&self.pins.data_in, 0);
         self.sim.settle();
+        // The wires jumped to their new levels; none of them switched.
+        self.sim.clear_toggles();
         self.cycle = state.cycle;
         self.fetched = false;
     }

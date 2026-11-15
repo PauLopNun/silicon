@@ -190,7 +190,7 @@ fn the_gate_cpu_inside_a_machine_is_inspectable() {
     assert_eq!(pc, machine.state().pc);
     assert_eq!(Engine::state(gate), machine.state());
     assert_eq!(
-        gate.sim().state().len(),
+        gate.sim().wire_count(),
         gate.sim().netlist().wire_count as usize
     );
 }

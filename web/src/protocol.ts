@@ -58,8 +58,21 @@ export interface FrameState {
   frames: number;
   /** Screen memory: 2048 bytes, four 2-bit pixels each. */
   framebuffer: Uint8Array;
-  /** One byte per wire of the CPU, 0 or 1. Live only on the gate engine. */
+  /**
+   * One byte per wire of the CPU, 0 or 1: its level at the instant of this
+   * message. Live only on the gate engine; on the fast engine the wires
+   * stay as the gate engine left them.
+   */
   wires: Uint8Array;
+  /**
+   * One byte per wire: how busy it has been since the frame message before
+   * this one. 0 if it did not change at all, otherwise 1 to 255 on a
+   * square-root scale of changes per clock cycle (255: it changed in every
+   * cycle). At hundreds of thousands of cycles a second the levels are a
+   * sample; this is everything that happened in between. All zero on the
+   * fast engine.
+   */
+  activity: Uint8Array;
   /** CPU registers, packed; see {@link decodeArch}. */
   arch: Uint8Array;
   /** Bytes the program wrote on the console since the frame message before this one. */

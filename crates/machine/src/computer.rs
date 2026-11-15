@@ -132,4 +132,10 @@ impl Machine {
     pub fn gate(&self) -> &GateCpu {
         &self.gate
     }
+
+    /// Start counting the changes of the gate-level CPU's wires afresh
+    /// (see [`GateCpu::toggles`]).
+    pub fn clear_wire_toggles(&mut self) {
+        self.gate.clear_toggles();
+    }
 }
