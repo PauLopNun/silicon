@@ -28,7 +28,7 @@ let worst = 0;
 try {
   for (const [name, query] of views) {
     const page = await browser.page(site.url + query, { width: 1280, height: 800 });
-    await page.until('document.body.dataset.ready', 30000);
+    await page.until('document.body?.dataset.ready', 30000);
     await page.sleep(1500);
     await page.evaluate(`new Promise((done) => {
       const canvas = document.getElementById('scene');
@@ -47,7 +47,7 @@ try {
     worst = Math.max(worst, ms);
     console.log(`${name.padEnd(22)} ${ms.toFixed(2)} ms on the main thread per picture (median of 120)`);
     for (const problem of page.problems) console.log('  !', problem);
-    page.close();
+    await page.close();
   }
 } finally {
   await browser.close();

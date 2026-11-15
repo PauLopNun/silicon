@@ -23,7 +23,7 @@ try {
     const [query, size] = spec.split('@');
     const [width, height] = (size ?? '1280x800').split('x').map(Number);
     const page = await browser.page(site.url + query, { width, height });
-    await page.until('document.body.dataset.ready', 20000);
+    await page.until('document.body?.dataset.ready', 20000);
     // Let the program draw and the engines settle into the view.
     await page.sleep(1500);
     const file = join(directory, `${String(n++).padStart(2, '0')}${query.replace(/[^a-z0-9]+/gi, '-') || '-home'}.png`);
@@ -33,7 +33,7 @@ try {
     );
     console.log(file, told);
     for (const problem of page.problems) console.log('  !', problem);
-    page.close();
+    await page.close();
   }
 } finally {
   await browser.close();

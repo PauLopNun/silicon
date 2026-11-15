@@ -60,6 +60,9 @@ export function serve(root) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/** Every wait is this many times longer: CHECK_SLOW=4 on a small machine. */
+const SLOW = Number(process.env.CHECK_SLOW ?? 1) || 1;
+
 /** Start the browser. `close()` stops it and removes its temporary profile. */
 export async function launch({ gpu = false } = {}) {
   const binary = CANDIDATES.find((path) => path && existsSync(path));
@@ -96,7 +99,12 @@ export async function launch({ gpu = false } = {}) {
     /** Open a page of the given size (CSS pixels) and wait until it has loaded. */
     async page(url, { width = 1280, height = 800, mobile = false } = {}) {
       const target = await (await fetch(`http://127.0.0.1:${port}/json/new?about:blank`, { method: 'PUT' })).json();
-      const page = await connect(target.webSocketDebuggerUrl);
+      const page = await connect(target.webSocketDebuggerUrl, async () => {
+        // Closing the tab, not only the connection: a tab left open goes on
+        // running the simulation and drawing, and on a small machine (a CI
+        // runner) the open tabs add up until everything crawls.
+        await fetch(`http://127.0.0.1:${port}/json/close/${target.id}`).catch(() => {});
+      });
       await page.send('Page.enable');
       await page.send('Runtime.enable');
       await page.send('Log.enable');
@@ -118,7 +126,7 @@ export async function launch({ gpu = false } = {}) {
 }
 
 /** One page, spoken to over the DevTools protocol. */
-async function connect(address) {
+async function connect(address, closeTab) {
   const socket = new WebSocket(address);
   await new Promise((done, fail) => {
     socket.onopen = done;
@@ -145,7 +153,10 @@ async function connect(address) {
       problems.push(`uncaught: ${details.exception?.description ?? details.text}`);
     } else if (message.method === 'Log.entryAdded') {
       const { level, text, url } = message.params.entry;
-      if (level === 'error' || level === 'warning') problems.push(`${level}: ${text} ${url ?? ''}`);
+      // A software OpenGL driver (a CI runner) remarks on its own performance
+      // when pixels are read back; that is the check looking, not the page failing.
+      const driverRemark = text.includes('GL Driver Message') && text.includes('Performance');
+      if ((level === 'error' || level === 'warning') && !driverRemark) problems.push(`${level}: ${text} ${url ?? ''}`);
     }
   };
   const send = (method, params = {}) =>
@@ -175,6 +186,7 @@ async function connect(address) {
     problems,
     /** Wait until an expression is true in the page. */
     async until(expression, timeout = 15000, what = expression) {
+      timeout *= SLOW;
       const start = Date.now();
       for (;;) {
         if (await evaluate(`Boolean(${expression})`)) return;
@@ -214,6 +226,9 @@ async function connect(address) {
     async key(code, key = code, down = true) {
       await send('Input.dispatchKeyEvent', { type: down ? 'rawKeyDown' : 'keyUp', code, key });
     },
-    close: () => socket.close(),
+    async close() {
+      socket.close();
+      await closeTab();
+    },
   };
 }

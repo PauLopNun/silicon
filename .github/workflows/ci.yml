@@ -46,3 +46,6 @@ jobs:
       - run: pnpm --filter silicon-web build
       # What only a real browser shows: the built page in the Chrome of the runner.
       - run: pnpm check
+        env:
+          # Two cores and a software OpenGL driver: every wait four times longer.
+          CHECK_SLOW: 4

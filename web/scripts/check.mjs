@@ -17,7 +17,7 @@ async function check(name, query, body, size) {
   const page = await browser.page(site.url + query, size);
   const started = Date.now();
   try {
-    await page.until('document.body.dataset.ready', 30000, 'the simulation to be ready');
+    await page.until('document.body?.dataset.ready', 30000, 'the simulation to be ready');
     await page.until(`document.getElementById('speed').textContent !== '…'`, 10000, 'the first frame');
     await body(page);
     if (page.problems.length > 0) throw new Error(`the page reported:\n      ${page.problems.join('\n      ')}`);
@@ -27,7 +27,7 @@ async function check(name, query, body, size) {
     results.push(`FAIL  ${name}\n      ${error.message}`);
   } finally {
     console.log(results[results.length - 1]);
-    page.close();
+    await page.close();
   }
 }
 
