@@ -56,7 +56,7 @@ Still to do for M4:
 1. ~~Wires between blocks clutter what is below them~~ — done: a module's wires fade in with its lid and down to a faint trace once the camera goes into one of its parts; they are drawn after the lids and before the letters, so names stay readable.
 2. ~~Page checks in the repository and in CI~~ — done: `pnpm check` (`web/scripts/check.mjs`), 11 checks on the built page in a real Chrome: every program runs, primes prints, the maze stands still between keys and turns with one, bounce moves, pause and step, the auto engine on load / zoom in / zoom out, click into a block with trail and link, a link to a gate, an engine asked for by link, the phone layout; any console error fails a check. An injected bug (auto always on the gate engine) fails 4 of them.
 3. ~~ADR and ARCHITECTURE~~ — done: ADR 0014; ARCHITECTURE §4–6 and §8 describe the scene as built.
-4. Frame-time measurement on the whole design (budget 16.6 ms).
+4. ~~Frame time~~ — measured on the main thread (`web/scripts/frametime.mjs`): 0.1–0.2 ms per picture at the whole CPU, inside the registers and over gates (the browser rounds its clock to 0.1 ms), about 1% of 16.6 ms. **The graphics card's share is not measured**: a browser without a window does not wait for it. It needs a real window on a real GPU, by hand.
 5. Not verified: Firefox, Safari, a real touch screen.
 
 ## M3 — what was done

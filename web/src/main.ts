@@ -185,13 +185,26 @@ function afterRender(): void {
   if (state) el('engine-note').textContent = engineNote(mode, state.engine, inside);
 }
 
+/**
+ * Main-thread milliseconds of the last pictures drawn: working out the
+ * levels of detail, filling the state textures and handing the draw calls
+ * to WebGL. What the graphics card then takes is not in it. Read by
+ * `web/scripts/frametime.mjs` from `data-render-ms`.
+ */
+const renderTimes: number[] = [];
+
 function frame(now: number): void {
   if (scene) {
     const moved = scene.nav.tick(now);
     if (scene.view.resize() && (moved || stale)) {
       stale = false;
+      const start = performance.now();
       scene.view.render();
       afterRender();
+      renderTimes.push(performance.now() - start);
+      if (renderTimes.length > 120) renderTimes.shift();
+      const sorted = [...renderTimes].sort((a, b) => a - b);
+      document.body.dataset.renderMs = (sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(2);
     }
   }
   requestAnimationFrame(frame);
