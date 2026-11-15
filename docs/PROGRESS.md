@@ -208,6 +208,9 @@ commits.
 - ADR 0011 — compiled code: one accumulator, frames from `sp`, arguments on
   the stack, everything caller-saved.
 - ADR 0012 — the language looks like C and is not C.
+- ADR 0015 (M5) — the learning tools read the real hardware: explain from
+  the microcode table, faults by rewiring, a memory of gates as a netlist of
+  its own, a tour checked against the netlists.
 - ADR 0014 (M4) — modules open by their size on screen; the wire activity is
   counted in the gate engine; on auto, the view chooses the engine.
 - ADR 0013 — the screen is on view all the time; there is no page flip and

@@ -215,8 +215,8 @@ The simulation never runs on the main thread, and the renderer never calls
 into WASM.
 
 **Commands** (main → worker, `postMessage`, small JSON): load program, key
-state, run/pause/step, set speed, set engine policy, force a gate
-stuck-at-0/1, request metadata. Types live in `web/src/protocol.ts`.
+state, run/pause/step (a cycle or an instruction), set speed, set engine,
+break or mend a gate, drive the memory made of gates. Types live in `web/src/protocol.ts`.
 
 **State** (worker → main), once per rendered frame
 ([ADR 0004](adr/0004-worker-state-transport.md)):
@@ -292,6 +292,18 @@ only `view.ts` touches WebGL.
   always behind.
 - Not built: bloom, travelling pulses on wires, signed-distance text (a
   glyph sheet with mipmaps and a sharpening step is used instead).
+
+## 6½. Learning tools
+
+All four read the real hardware rather than a model of it
+([ADR 0015](adr/0015-learning-tools-use-the-real-hardware.md)).
+
+| Tool | Where | What it reads |
+|---|---|---|
+| **Explain**: one cycle or one instruction at a time | `Machine::explain`, `step_instruction`; `web/src/explain.ts` | the microcode table through `control_word`; the opcode's address seen on the bus (`opcode_at`) |
+| **Break a gate**: stuck at 0 or 1 | `GateSim::force`, `Machine::break_gate` | rewires the gate in the compiled arrays, at no cost per cycle; only the gate engine runs while one is broken |
+| **Memory made of gates**: 8 × 4 bits | `machine::exhibit`, `wasm::RamExhibit`; `?view=ram` | its own netlist and simulator beside the CPU's |
+| **Guided tour**: nine steps | `web/src/lessons.ts` | places by path and facts about them, checked against the netlists by a test |
 
 ## 7. Performance budgets
 
