@@ -112,6 +112,8 @@
       #gate-panel[data-broken] #gate-name { color: #ff5a4f; }
       #engine-note { color: var(--dim); max-width: 62ch; text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg); }
       #gestures { color: var(--dim); opacity: .75; text-shadow: 0 0 6px var(--bg); }
+      /* A middling window: the trail of blocks needs the room more than the legend does. */
+      @media (max-width: 1240px) { #legend { display: none; } }
       @media (max-width: 760px) {
         body { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
         #side { border-right: 0; border-bottom: 1px solid var(--line); }

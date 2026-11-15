@@ -201,8 +201,13 @@ async function connect(address, closeTab) {
       writeFileSync(file, Buffer.from(data, 'base64'));
     },
     /** The pixels of a rectangle of the page as PNG bytes. */
-    async capture(clip) {
-      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: clip && { ...clip, scale: 1 } });
+    /** The page, or a rectangle of it, as PNG bytes; `scale` below 1 makes it smaller. */
+    async capture(clip, scale = 1) {
+      if (!clip && scale !== 1) {
+        const size = await evaluate('[innerWidth, innerHeight]');
+        clip = { x: 0, y: 0, width: size[0], height: size[1] };
+      }
+      const { data } = await send('Page.captureScreenshot', { format: 'png', clip: clip && { ...clip, scale } });
       return Buffer.from(data, 'base64');
     },
     move: (x, y) => mouse('mouseMoved', x, y),
