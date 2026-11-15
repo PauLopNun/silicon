@@ -43,3 +43,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm test
       - run: pnpm --filter silicon-web build
+      # What only a real browser shows: the built page in the Chrome of the runner.
+      - run: pnpm check

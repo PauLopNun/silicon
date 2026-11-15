@@ -54,9 +54,7 @@ built page at desktop and phone size.
 Still to do for M4:
 
 1. ~~Wires between blocks clutter what is below them~~ — done: a module's wires fade in with its lid and down to a faint trace once the camera goes into one of its parts; they are drawn after the lids and before the letters, so names stay readable.
-2. Page checks as a script in the repository and in CI (load, every
-   program runs, the screen is still while nothing is held, zoom in and
-   out, no console errors), on top of `browser.mjs`.
+2. ~~Page checks in the repository and in CI~~ — done: `pnpm check` (`web/scripts/check.mjs`), 11 checks on the built page in a real Chrome: every program runs, primes prints, the maze stands still between keys and turns with one, bounce moves, pause and step, the auto engine on load / zoom in / zoom out, click into a block with trail and link, a link to a gate, an engine asked for by link, the phone layout; any console error fails a check. An injected bug (auto always on the gate engine) fails 4 of them.
 3. ADR for the decisions above (LOD by projected size, engine by view,
    activity encoding), ARCHITECTURE §5–6 brought up to date.
 4. Frame-time measurement on the whole design (budget 16.6 ms).
@@ -273,10 +271,7 @@ Each has a regression test.
    cross-fades, label legibility. Prototype with a synthetic hierarchy early,
    before polishing anything. The state path (instancing + wire texture) is
    already proven on the real CPU.
-2. **What only a browser shows.** Twice now the page has had faults that no
-   test saw (M3: flicker, a squeezed panel). Until the page check is in the
-   repository and in CI, every change to the page or to a program that draws
-   needs it run by hand.
+2. **What only a browser shows.** Twice the page had faults no test saw (M3: flicker, a squeezed panel). `pnpm check` now runs in CI; a fault it does not look for still needs `look.mjs` and an eye.
 3. **Cross-browser WASM/worker behaviour** (Safari, Firefox). Untested.
 4. **Engine switch correctness.** Covered by the no-hidden-state test,
    cycle-level lockstep on random programs and on every real one,

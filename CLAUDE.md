@@ -18,6 +18,8 @@ Rust and pnpm are installed per-user; if they are not found, add
 | Frontend tests | `pnpm test` |
 | Typecheck (needs `pnpm wasm` once) | `pnpm typecheck` |
 | Production build | `pnpm build` |
+| Page checks in a real Chrome (after a build) | `pnpm check` |
+| Screenshots of the built page | `node web/scripts/look.mjs <dir> [?query …]` |
 | Everything | `pnpm lint && pnpm test:all && pnpm build` |
 
 ## Rules that do not bend
