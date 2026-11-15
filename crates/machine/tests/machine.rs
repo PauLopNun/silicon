@@ -240,3 +240,63 @@ fn loading_a_program_leaves_nothing_of_the_one_before() {
         assert!(machine.board().rom() == fresh.board().rom());
     }
 }
+
+/// The computer knows where the running instruction began, the same on
+/// both engines at every cycle, and it is where the assembler put it.
+#[test]
+fn both_engines_say_where_the_running_instruction_began() {
+    let insns = [
+        LdImm(Reg::A, 1),
+        StAbsA(map::OUT),
+        Call(9),
+        Hlt,
+        // 9: a subroutine
+        Inc(Reg::A),
+        Ret,
+    ];
+    let program = assemble(&insns);
+    // Where each instruction starts, from the encoding itself.
+    let mut starts = Vec::new();
+    let mut at = 0u16;
+    for insn in &insns {
+        starts.push(at);
+        at += insn.len() as u16;
+    }
+    assert_eq!(starts[4], 9);
+
+    let mut fast = Machine::new(&program).unwrap();
+    let mut gate = Machine::new(&program).unwrap();
+    gate.set_engine(EngineKind::Gate);
+    assert_eq!(fast.opcode_at(), None);
+    let mut seen = Vec::new();
+    for _ in 0..60 {
+        fast.run(1);
+        gate.run(1);
+        assert_eq!(
+            fast.opcode_at(),
+            gate.opcode_at(),
+            "at cycle {}",
+            fast.board().cycles()
+        );
+        let at = fast.opcode_at().unwrap();
+        assert!(
+            starts.contains(&at),
+            "{at} is not where an instruction starts"
+        );
+        if seen.last() != Some(&at) {
+            seen.push(at);
+        }
+        if fast.halted() {
+            break;
+        }
+    }
+    // ld, st, call, then the subroutine, back, and hlt.
+    assert_eq!(seen, [0, 2, 5, 9, 10, 8]);
+    assert_eq!(fast.opcode_at(), Some(8));
+
+    // Starting again forgets it until the first opcode is read.
+    fast.reset();
+    assert_eq!(fast.opcode_at(), None);
+    fast.run(1);
+    assert_eq!(fast.opcode_at(), Some(0));
+}

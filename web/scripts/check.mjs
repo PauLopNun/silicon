@@ -102,6 +102,29 @@ await check('pause stops the clock and step runs one cycle', '', async (page) =>
   await page.until(`Number(${text('cycles')}.replace(/\\D/g, '')) === ${paused + 1}`, 5000, 'one cycle more');
 });
 
+await check('explain pauses on the gates and follows the CPU cycle by cycle', '', async (page) => {
+  await page.evaluate(`document.getElementById('explain-start').click()`);
+  await page.until(`${text('speed')} === 'paused' && ${engine} === 'gate'`, 8000, 'paused on the gate engine');
+  await page.until(`!document.getElementById('explain').hidden && ${text('explain-head')} !== ''`, 5000, 'the explanation');
+  const cycle = async () => page.evaluate(`Number(${text('cycles')}.replace(/\\D/g, ''))`);
+  // A cycle at a time: the clock moves by one, and every signal has its meaning.
+  const before = await cycle();
+  await page.evaluate(`document.getElementById('step').click()`);
+  await page.until(`Number(${text('cycles')}.replace(/\\D/g, '')) === ${before + 1}`, 5000, 'one cycle more');
+  const signals = await page.evaluate(`[...document.querySelectorAll('#explain-signals li')].map((li) => li.textContent)`);
+  expect(signals.length > 0 && signals.every((s) => /^[A-Z_0-9]+\S*.{5,}/.test(s)), `signals: ${JSON.stringify(signals)}`);
+  // An instruction at a time: each is shown at the step just after its opcode was read.
+  for (let i = 0; i < 3; i++) {
+    const head = await page.evaluate(text('explain-head'));
+    await page.evaluate(`document.getElementById('step-insn').click()`);
+    await page.until(`${text('explain-head')} !== ${JSON.stringify(head)}`, 5000, 'the next instruction');
+    await page.until(`/^[0-9a-f]{4}  \\S.*step 1 \\(/.test(${text('explain-head')})`, 5000, 'an instruction at step 1');
+  }
+  // A block at work leads to it.
+  await page.evaluate(`document.querySelector('#explain-blocks button').click()`);
+  await page.until(`document.body.dataset.focus !== 'cpu'`, 8000, 'the camera to go to a block at work');
+});
+
 // ── the scene ──
 
 await check('the page opens on the whole CPU, on the fast engine at full speed', '', async (page) => {

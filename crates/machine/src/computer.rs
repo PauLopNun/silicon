@@ -14,6 +14,10 @@ pub struct Machine {
     fast: FastCpu,
     gate: GateCpu,
     active: EngineKind,
+    /// Where the opcode in `ir` was read from, once one has been read since
+    /// power-on or since the state was last overwritten. Not part of the
+    /// CPU: an observation of its bus, for showing which instruction runs.
+    opcode_at: Option<u16>,
 }
 
 impl Machine {
@@ -25,6 +29,7 @@ impl Machine {
             fast: FastCpu::new(),
             gate: GateCpu::new(),
             active: EngineKind::Fast,
+            opcode_at: None,
         })
     }
 
@@ -35,6 +40,7 @@ impl Machine {
         self.board.load(program)?;
         self.fast.reset();
         Engine::reset(&mut self.gate);
+        self.opcode_at = None;
         Ok(())
     }
 
@@ -44,6 +50,7 @@ impl Machine {
         self.board.reset();
         self.fast.reset();
         Engine::reset(&mut self.gate);
+        self.opcode_at = None;
     }
 
     /// The engine currently running the CPU.
@@ -71,12 +78,20 @@ impl Machine {
                 for _ in 0..cycles {
                     self.fast.step_cycle(&mut self.board);
                     self.board.tick();
+                    // An opcode fetch always leaves pc one past the opcode.
+                    if self.fast.fetched() {
+                        self.opcode_at = Some(self.fast.state().pc.wrapping_sub(1));
+                    }
                 }
             }
             EngineKind::Gate => {
                 for _ in 0..cycles {
                     self.gate.step_cycle(&mut self.board);
                     self.board.tick();
+                    if self.gate.fetched() {
+                        let pc = self.gate.sim().get_word(&self.gate.state_wires().pc) as u16;
+                        self.opcode_at = Some(pc.wrapping_sub(1));
+                    }
                 }
             }
         }
@@ -103,10 +118,19 @@ impl Machine {
 
     /// Overwrite the CPU's state (save states, tests). Memory is untouched.
     pub fn load_state(&mut self, state: &ArchState) {
+        self.opcode_at = None;
         match self.active {
             EngineKind::Fast => self.fast.load_state(state),
             EngineKind::Gate => self.gate.load_state(state),
         }
+    }
+
+    /// Where the instruction now running began: the address its opcode was
+    /// read from. `None` until an opcode has been read since power-on (or
+    /// since [`Machine::load_state`]). Both engines say when they read one,
+    /// so this is the same on either.
+    pub fn opcode_at(&self) -> Option<u16> {
+        self.opcode_at
     }
 
     /// Has the CPU executed `hlt`?

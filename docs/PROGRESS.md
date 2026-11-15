@@ -11,10 +11,31 @@ Read this and `CLAUDE.md` at the start of every session.
 | M2 — Simulation engines | **done** (2026-11-13) |
 | M3 — Toolchain and programs | **done** (2026-11-14) |
 | M4 — 3D visualization | **in progress** |
-| M5 — Learning tools | — |
+| M5 — Learning tools | **in progress** |
 | M6 — Polish and launch | — |
 
 Everything is on `main` and pushed (2026-11-15).
+
+## M5 — where it stands (2026-11-15)
+
+Chosen first: **explain mode**. Done, on `main`:
+
+- **Explain** pauses the computer on the gate engine. A panel shows, for the
+  cycle about to run: the instruction (address and assembly), its step and
+  form in the microcode table, what it does with memory, the blocks it sets
+  to work (each one flies the camera there) and every control signal raised
+  with its meaning. **Next cycle** and **Next instruction** step through.
+  In the scene, the wires that changed in the step just run glow.
+- The facts come from the core: `Machine::explain` reads the microcode
+  table through `control_word`, which the control unit's gates are tested
+  against. `Machine::opcode_at` (where the running instruction began) is
+  observed on both engines and tested to agree with them, cycle by cycle,
+  and with the assembler. It costs the fast engine nothing measurable.
+- Tests: Rust (283), Vitest (121, including the explanation read from the
+  real core for 200 cycles), a page check (12 in all).
+
+Next for M5, to be chosen: guided lessons; breaking a gate (stuck at 0/1);
+the RAM made of gates promised by ADR 0002.
 
 ## M4 — where it stands (2026-11-15)
 

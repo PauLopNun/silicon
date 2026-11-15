@@ -5,6 +5,7 @@
  * program is running; this file only draws it and passes on what is asked.
  */
 import { WindowRate } from './clock';
+import { blocksAtWork, headline, memoryText, parseExplanation } from './explain';
 import { searchWith } from './link';
 import { appendConsole, consoleText, searchFor, type ProgramInfo } from './programs';
 import {
@@ -267,6 +268,42 @@ function showConsole(msg: FrameState): void {
 const speed = new WindowRate(1000);
 const fps = new WindowRate(2000);
 
+/** The explanation shown last, so that the panel is rebuilt only when it changes. */
+let shownExplanation = '';
+
+/** While paused: what the CPU does in the cycle it is about to run. */
+function showExplanation(msg: FrameState): void {
+  const panel = el('explain');
+  panel.hidden = msg.running;
+  if (msg.running || msg.explain === shownExplanation) return;
+  shownExplanation = msg.explain;
+  const e = parseExplanation(msg.explain);
+  el('explain-head').textContent = headline(e);
+  el('explain-memory').textContent = `This cycle ${memoryText(e.signals)}.`;
+  // The blocks at work, each a way to go and look at it.
+  el('explain-blocks').replaceChildren(
+    ...blocksAtWork(e.signals).map((path) => {
+      const button = document.createElement('button');
+      button.textContent = path.replace(/^cpu\//, '');
+      button.title = `Go to ${path}`;
+      button.addEventListener('click', () => {
+        const module = scene ? moduleAt(scene.view.tree, path) : -1;
+        if (module > 0) scene!.nav.flyToModule(module);
+      });
+      return button;
+    }),
+  );
+  el('explain-signals').replaceChildren(
+    ...e.signals.map(({ name, doc }) => {
+      const item = document.createElement('li');
+      const label = document.createElement('b');
+      label.textContent = name;
+      item.append(label, doc);
+      return item;
+    }),
+  );
+}
+
 function show(msg: FrameState): void {
   state = msg;
   if (msg.engine === asked) asked = undefined;
@@ -299,6 +336,7 @@ function show(msg: FrameState): void {
     `x ${hex(pairValue(s.regs, 1), 4)}  y ${hex(pairValue(s.regs, 2), 4)}  z ${hex(pairValue(s.regs, 3), 4)}`;
   el('run').textContent = msg.running ? 'Pause' : 'Run';
   el<HTMLButtonElement>('step').disabled = msg.running;
+  showExplanation(msg);
 }
 
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
@@ -341,6 +379,13 @@ el('use-fast').addEventListener('click', () => setMode('fast'));
 el('engine').addEventListener('click', () => setMode(state?.engine === 'gate' ? 'fast' : 'gate'));
 el('run').addEventListener('click', () => send({ type: 'run', running: !(state?.running ?? true) }));
 el('step').addEventListener('click', () => send({ type: 'step', cycles: 1 }));
+el('step-insn').addEventListener('click', () => send({ type: 'step-instruction' }));
+// Explaining: stop the clock and compute every gate, so that what lights up
+// in the scene after each step is what that step did.
+el('explain-start').addEventListener('click', () => {
+  send({ type: 'run', running: false });
+  setMode('gate');
+});
 el('reset').addEventListener('click', () => send({ type: 'reset' }));
 el<HTMLSelectElement>('clock').addEventListener('change', (e) => {
   const value = (e.target as HTMLSelectElement).value;

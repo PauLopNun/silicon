@@ -5,7 +5,9 @@
 //! information about the netlist is returned once as flat arrays.
 
 use silicon_hdl::GateKind;
+use silicon_isa::{form, Insn};
 use silicon_machine::board::RomTooLarge;
+use silicon_machine::hw::control;
 use silicon_machine::{demo, EngineKind, Machine as Core};
 use wasm_bindgen::prelude::*;
 
@@ -208,6 +210,63 @@ impl Machine {
 
     pub fn activity_len(&self) -> usize {
         self.activity.len()
+    }
+
+    /// Run to the start of the next instruction: until an opcode has been
+    /// read, or the CPU has halted. At most 16 cycles, more than the longest
+    /// instruction takes.
+    pub fn step_instruction(&mut self) {
+        for _ in 0..16 {
+            self.core.run(1);
+            // Step 1 is reached only by reading an opcode (or by sitting in hlt).
+            let state = self.core.state();
+            if state.step == 1 || state.halted() {
+                break;
+            }
+        }
+    }
+
+    /// What the CPU is doing in the clock cycle it is about to run, for
+    /// people. One line per item, fields separated by tabs:
+    ///
+    /// 1. where the running instruction began (or -1 if not known yet), the
+    ///    instruction as assembly, its form, and the step it is in;
+    /// 2. then one line per control signal the control unit raises in this
+    ///    cycle: its name and what it does.
+    ///
+    /// The signals come from the microcode table read in plain Rust
+    /// ([`control::control_word`]), which the gates of the control unit are
+    /// tested against for every opcode, step and flag value.
+    pub fn explain(&self) -> String {
+        let state = self.core.state();
+        let (at, text) = match self.core.opcode_at() {
+            Some(at) => {
+                let bytes: Vec<u8> = (0..3)
+                    .map(|i| self.core.board().peek(at.wrapping_add(i)))
+                    .collect();
+                let text =
+                    Insn::decode(&bytes).map_or_else(String::new, |(insn, _)| insn.to_string());
+                (at as i32, text)
+            }
+            None => (-1, String::new()),
+        };
+        let form = if state.step == 0 {
+            "FETCH"
+        } else {
+            form::form_of(state.ir).name
+        };
+        let mut lines = vec![format!("{at}\t{text}\t{form}\t{}", state.step)];
+        let word = control::control_word(state.ir, state.step, state.flags);
+        for bit in 0..control::SIGNAL_COUNT {
+            if word >> bit & 1 == 1 {
+                lines.push(format!(
+                    "{}\t{}",
+                    control::SIGNAL_NAMES[bit],
+                    control::SIGNAL_DOCS[bit]
+                ));
+            }
+        }
+        lines.join("\n")
     }
 
     /// Console output since the last call.
@@ -477,6 +536,60 @@ mod tests {
         let state = m.core.gate().state_wires();
         let expected: Vec<u32> = state.pc.iter().map(|w| w.0).collect();
         assert_eq!(pc, Some(expected));
+    }
+
+    #[test]
+    fn explain_names_the_instruction_its_step_and_its_signals() {
+        let mut m = Machine::running("hello").unwrap();
+        // Power-on: nothing read yet, about to fetch.
+        let first = m.explain();
+        let head: Vec<&str> = first.lines().next().unwrap().split('\t').collect();
+        assert_eq!(head, ["-1", "", "FETCH", "0"]);
+        assert!(first.contains("IR_WE\tinstruction register ← data in"));
+        assert!(first.contains("RD\t"));
+
+        // One instruction at a time, each just fetched: pc is one past its opcode.
+        for n in 0..6 {
+            m.step_instruction();
+            let text = m.explain();
+            let head: Vec<&str> = text.lines().next().unwrap().split('\t').collect();
+            let at: u16 = head[0].parse().unwrap();
+            assert_eq!(head[3], "1", "{text}");
+            assert!(!head[1].is_empty() && head[2] != "FETCH", "{text}");
+            // The text is the instruction found at that address.
+            let bytes: Vec<u8> = (0..3).map(|i| m.core.board().peek(at + i)).collect();
+            let (insn, _) = Insn::decode(&bytes).unwrap();
+            assert_eq!(head[1], insn.to_string());
+            assert_eq!(head[2], form::form_of(bytes[0]).name);
+            assert_eq!(m.core.state().pc, at + 1, "{text}");
+            if n == 0 {
+                assert_eq!(at, 0, "the program starts at address 0");
+            }
+            // Every signal line is a known signal with its description.
+            for line in text.lines().skip(1) {
+                let (name, doc) = line.split_once('\t').unwrap();
+                let bit = control::SIGNAL_NAMES
+                    .iter()
+                    .position(|&n| n == name)
+                    .unwrap();
+                assert_eq!(doc, control::SIGNAL_DOCS[bit]);
+            }
+        }
+    }
+
+    #[test]
+    fn step_instruction_stops_at_hlt() {
+        let mut m = Machine::running("hello").unwrap();
+        for _ in 0..1000 {
+            m.step_instruction();
+        }
+        assert!(m.halted());
+        assert!(m
+            .explain()
+            .starts_with(&format!("{}\thlt\t", m.core.opcode_at().unwrap())));
+        let cycles = m.cycles();
+        m.step_instruction();
+        assert_eq!(m.cycles(), cycles + 1.0);
     }
 
     #[test]

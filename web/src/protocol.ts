@@ -26,6 +26,8 @@ export type ToWorker =
   | { type: 'run'; running: boolean }
   /** Run exactly this many clock cycles (used while paused). */
   | { type: 'step'; cycles: number }
+  /** Run to the start of the next instruction (used while paused). */
+  | { type: 'step-instruction' }
   | { type: 'engine'; engine: EngineKind }
   /** Target clock rate in cycles per second; `null` means as fast as possible. */
   | { type: 'clock'; hz: number | null }
@@ -77,6 +79,11 @@ export interface FrameState {
   arch: Uint8Array;
   /** Bytes the program wrote on the console since the frame message before this one. */
   console: Uint8Array;
+  /**
+   * While paused: what the CPU does in the cycle it is about to run, as the
+   * core writes it (see `explain.ts`). Empty while running.
+   */
+  explain: string;
 }
 
 export type FromWorker =

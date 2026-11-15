@@ -39,6 +39,15 @@
         font: inherit; color: var(--hot); background: #000; border: 1px solid var(--line); border-radius: 4px;
         padding: 6px 8px; }
       #speed { color: var(--hot); }
+      #explain { display: flex; flex-direction: column; gap: 8px; border: 1px solid var(--line);
+        border-radius: 6px; padding: 10px; }
+      #explain[hidden] { display: none; }
+      #explain-head { color: var(--hot); white-space: pre; overflow-x: auto; }
+      #explain-blocks { gap: 4px; }
+      #explain-blocks button { min-width: 0; padding: 2px 8px; font-size: 12px; }
+      #explain-signals { margin: 0; padding: 0; list-style: none; max-height: 16em; overflow-y: auto; }
+      #explain-signals li { padding: 2px 0; color: var(--dim); }
+      #explain-signals b { color: var(--ink); font-weight: 600; margin-right: 8px; }
       #registers { margin: 0; white-space: pre-wrap; color: var(--ink); font: inherit; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
       .group { display: flex; }
@@ -128,9 +137,19 @@
           <button id="use-gate" aria-pressed="false" title="Every NAND gate and flip-flop is simulated">gate</button>
         </div>
         <button id="run">Pause</button>
-        <button id="step" disabled title="Advance one clock cycle">Step</button>
         <button id="reset">Reset</button>
+        <button id="explain-start" title="Pause, compute every gate, and follow the CPU one cycle at a time">Explain</button>
       </div>
+      <section id="explain" hidden aria-label="What the CPU does in this cycle">
+        <div class="row">
+          <button id="step" disabled title="Advance one clock cycle">Next cycle</button>
+          <button id="step-insn" title="Run to the start of the next instruction">Next instruction</button>
+        </div>
+        <p id="explain-head"></p>
+        <p id="explain-memory"></p>
+        <div id="explain-blocks" class="row" aria-label="Blocks at work in this cycle"></div>
+        <ul id="explain-signals" aria-label="Control signals raised in this cycle"></ul>
+      </section>
       <div class="row">
         <label for="clock">clock</label>
         <select id="clock">

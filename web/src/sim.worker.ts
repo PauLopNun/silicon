@@ -75,6 +75,8 @@ async function main(): Promise<void> {
         activity,
         arch,
         console: written,
+        // Only while paused: running, it would be stale before it arrived.
+        explain: running ? '' : machine.explain(),
       },
       [framebuffer.buffer, wires.buffer, activity.buffer, arch.buffer, written.buffer],
     );
@@ -115,6 +117,9 @@ async function main(): Promise<void> {
         break;
       case 'step':
         machine.run(command.cycles);
+        break;
+      case 'step-instruction':
+        machine.step_instruction();
         break;
       case 'engine':
         machine.use_gate_engine(command.engine === 'gate');
