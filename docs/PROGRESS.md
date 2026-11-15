@@ -34,8 +34,21 @@ Chosen first: **explain mode**. Done, on `main`:
 - Tests: Rust (283), Vitest (121, including the explanation read from the
   real core for 200 cycles), a page check (12 in all).
 
-Next for M5, to be chosen: guided lessons; breaking a gate (stuck at 0/1);
-the RAM made of gates promised by ADR 0002.
+- **Breaking a gate** (stuck-at faults, as in chip testing): click any gate
+  in the scene, stick its output at 0 or 1, mend it, or mend all. Broken
+  gates are red and striped. One stuck NAND in the ALU's adder visibly
+  corrupts the maze (`docs/media/m5-broken-gate.png`). Free at run time: a
+  stuck NAND is rewired to take its inputs from the constants, a stuck
+  flip-flop latches a constant. While a gate is broken only the gate engine
+  runs (the fast one has no gates to break; the core refuses it). Broken
+  gates survive resets and new programs. Tests: the simulator (truth tables
+  while stuck and after mending, a stuck flip-flop through clocks and
+  loads), real programs (`crates/programs/tests/faults.rs`: faults in the
+  address adder break `hello`; pc bit 0 stuck at 0 fetches only even
+  addresses; mended, the computer is cycle for cycle the original), a page
+  check (13 in all).
+
+Next for M5: the RAM made of gates promised by ADR 0002; guided lessons.
 
 ## M4 — where it stands (2026-11-15)
 

@@ -16,6 +16,7 @@ import {
   hex,
   pairValue,
   type EngineKind,
+  faultMap,
   type FrameState,
   type FromWorker,
   type NetlistInfo,
@@ -80,6 +81,30 @@ let asked: EngineKind | undefined;
 let pointed: Hit | undefined;
 /** The module the camera is in, as shown in the trail and in the address bar. */
 let focus = -1;
+/** The gate chosen with a click, to be broken or mended; -1 for none. */
+let chosenGate = -1;
+/** The broken gates, as the simulation last reported them: gate → level it is stuck at. */
+let faults = new Map<number, 0 | 1>();
+
+/** The panel for the chosen gate, and for mending whatever is broken. */
+function showGatePanel(): void {
+  const panel = el('gate-panel');
+  panel.hidden = chosenGate < 0 && faults.size === 0;
+  if (panel.hidden || !scene) return;
+  const stuck = faults.get(chosenGate);
+  el('gate-name').textContent =
+    chosenGate < 0
+      ? `${faults.size} broken`
+      : `${gatePath(scene.view.tree, chosenGate)}${stuck === undefined ? '' : `  stuck at ${stuck}`}`;
+  if (stuck === undefined) delete panel.dataset.broken;
+  else panel.dataset.broken = '';
+  for (const id of ['stuck-0', 'stuck-1', 'mend']) el(id).hidden = chosenGate < 0;
+  el<HTMLButtonElement>('stuck-0').disabled = stuck === 0;
+  el<HTMLButtonElement>('stuck-1').disabled = stuck === 1;
+  el<HTMLButtonElement>('mend').disabled = stuck === undefined;
+  el('mend-all').hidden = faults.size === 0;
+  el('mend-all').textContent = faults.size === 1 ? 'mend all' : `mend all ${faults.size}`;
+}
 
 /** The address bar says `text`, without adding to the history. */
 function replaceSearch(search: string): void {
@@ -100,6 +125,11 @@ function buildScene(net: NetlistInfo): Scene {
       pointed = hit;
       showPointed();
       stale = true;
+    },
+    // A click on a gate chooses it; a click on the floor lets it go.
+    select: (hit) => {
+      chosenGate = hit.gate;
+      showGatePanel();
     },
   });
   view.resize();
@@ -178,12 +208,12 @@ function afterRender(): void {
   // CPU's blocks is open. With the CPU open and its blocks closed only the
   // wires between blocks show, and those are not worth a game at 2 frames/s.
   const inside = view.lod.entered[0]!;
-  const engine = engineFor(mode, inside);
+  const engine = engineFor(mode, inside, faults.size);
   if (state && engine !== state.engine && engine !== asked) {
     asked = engine;
     send({ type: 'engine', engine });
   }
-  if (state) el('engine-note').textContent = engineNote(mode, state.engine, inside);
+  if (state) el('engine-note').textContent = engineNote(mode, state.engine, inside, faults.size);
 }
 
 /**
@@ -314,7 +344,11 @@ function show(msg: FrameState): void {
 
   const s = decodeArch(msg.arch);
   if (scene) {
-    scene.view.setWires(msg.wires, msg.activity, msg.engine === 'gate');
+    const reported = faultMap(msg.faults);
+    const changed = reported.size !== faults.size || [...reported].some(([g, l]) => faults.get(g) !== l);
+    faults = reported;
+    if (changed) showGatePanel();
+    scene.view.setWires(msg.wires, msg.activity, msg.engine === 'gate', faults.keys());
     for (const { module, text } of scene.values) scene.view.setValue(module, text(s));
     if (pointed) showPointed();
     stale = true;
@@ -392,6 +426,11 @@ el<HTMLSelectElement>('clock').addEventListener('change', (e) => {
   send({ type: 'clock', hz: value === 'max' ? null : Number(value) });
 });
 el('whole').addEventListener('click', () => scene?.nav.flyTo(scene.nav.home()));
+// Breaking gates. The panel shows what the simulation reports, not what was asked.
+el('stuck-0').addEventListener('click', () => send({ type: 'break', gate: chosenGate, level: 0 }));
+el('stuck-1').addEventListener('click', () => send({ type: 'break', gate: chosenGate, level: 1 }));
+el('mend').addEventListener('click', () => send({ type: 'break', gate: chosenGate, level: null }));
+el('mend-all').addEventListener('click', () => send({ type: 'mend-all' }));
 
 // The computer's keys follow the keyboard and the keys drawn on the page.
 const typed = new Set<string>(); // held on the keyboard

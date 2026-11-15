@@ -77,6 +77,7 @@ async function main(): Promise<void> {
         console: written,
         // Only while paused: running, it would be stale before it arrived.
         explain: running ? '' : machine.explain(),
+        faults: machine.faults(),
       },
       [framebuffer.buffer, wires.buffer, activity.buffer, arch.buffer, written.buffer],
     );
@@ -120,6 +121,15 @@ async function main(): Promise<void> {
         break;
       case 'step-instruction':
         machine.step_instruction();
+        break;
+      case 'break':
+        machine.break_gate(command.gate, command.level ?? -1);
+        // Breaking a gate may have moved the CPU to the gate engine.
+        capacity.reset();
+        pacer.clear();
+        break;
+      case 'mend-all':
+        machine.mend_all();
         break;
       case 'engine':
         machine.use_gate_engine(command.engine === 'gate');

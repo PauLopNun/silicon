@@ -125,6 +125,36 @@ await check('explain pauses on the gates and follows the CPU cycle by cycle', ''
   await page.until(`document.body.dataset.focus !== 'cpu'`, 8000, 'the camera to go to a block at work');
 });
 
+await check('a gate can be broken, keeps the gate engine, and can be mended', '?at=cpu/alu/adder8/fa3', async (page) => {
+  await page.until(`document.body.dataset.focus === 'cpu/alu/adder8/fa3'`, 8000, 'the camera at fa3');
+  // Feel about the middle of the scene for a gate.
+  const { x, y } = await sceneMiddle(page);
+  let found;
+  for (let dy = -120; dy <= 120 && !found; dy += 20) {
+    for (let dx = -200; dx <= 200 && !found; dx += 20) {
+      await page.move(x + dx, y + dy);
+      await page.sleep(20);
+      if (/\/(nand|dff)\d+ /.test(await page.evaluate(text('hover')))) found = { x: x + dx, y: y + dy };
+    }
+  }
+  expect(found, 'no gate under the pointer anywhere near the middle');
+  await page.click(found.x, found.y);
+  await page.until(`!document.getElementById('gate-panel').hidden`, 5000, 'the gate panel');
+  const name = await page.evaluate(text('gate-name'));
+  expect(/^cpu\/alu\/adder8\/fa3\/nand\d+$/.test(name), `chose ${name}`);
+  await page.evaluate(`document.getElementById('stuck-1').click()`);
+  await page.until(`'broken' in document.getElementById('gate-panel').dataset`, 5000, 'the gate to be reported broken');
+  expect((await page.evaluate(text('gate-name'))).endsWith('stuck at 1'), 'the panel does not say stuck at 1');
+  // The fast engine is refused while a gate is broken.
+  await page.evaluate(`document.getElementById('use-fast').click()`);
+  await page.sleep(600);
+  expect((await page.evaluate(engine)) === 'gate', 'the fast engine ran a CPU with a broken gate');
+  expect(/broken/.test(await page.evaluate(text('engine-note'))), 'the page does not say why');
+  await page.evaluate(`document.getElementById('mend-all').click()`);
+  await page.until(`!('broken' in document.getElementById('gate-panel').dataset)`, 5000, 'the gate to be mended');
+  await page.until(`${engine} === 'fast'`, 8000, 'the fast engine once nothing is broken');
+});
+
 // ── the scene ──
 
 await check('the page opens on the whole CPU, on the fast engine at full speed', '', async (page) => {

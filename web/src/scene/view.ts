@@ -86,10 +86,10 @@ const COMMON = /* glsl */ `
     int i = int(module + 0.5);
     return texelFetch(uModules, ivec2(i % ${STATE_WIDTH}, i / ${STATE_WIDTH}), 0);
   }
-  // r: the level, 0 or 1/255. g: the activity.
-  vec2 wireState(float wire) {
+  // r: the level, 0 or 1/255. g: the activity. b: 1 if the gate driving it is broken.
+  vec4 wireState(float wire) {
     int i = int(wire + 0.5);
-    return texelFetch(uWires, ivec2(i % ${STATE_WIDTH}, i / ${STATE_WIDTH}), 0).rg;
+    return texelFetch(uWires, ivec2(i % ${STATE_WIDTH}, i / ${STATE_WIDTH}), 0);
   }
   // Somewhere that is never drawn.
   const vec4 NOWHERE = vec4(2.0, 2.0, 2.0, 1.0);
@@ -151,6 +151,7 @@ const GATE_VERTEX = /* glsl */ `
   varying float vLevel;
   varying vec2 vInputs;
   varying float vPixels;
+  varying float vBroken;
   void main() {
     vec4 state = moduleState(aGate.z);
     if (state.r * state.g == 0.0) { gl_Position = NOWHERE; return; }
@@ -161,6 +162,7 @@ const GATE_VERTEX = /* glsl */ `
     vTop = position.xy * vec2(${GATE_WIDTH}, ${GATE_DEPTH});
     vKind = aGate.x;
     vLevel = wireState(aGate.y).r * 255.0;
+    vBroken = wireState(aGate.y).b;
     vInputs = vec2(wireState(aIn.x).r, wireState(aIn.y).r) * 255.0;
     vPixels = uFocal / max(-seen.z, 1e-6);
   }
@@ -173,6 +175,7 @@ const GATE_FRAGMENT = /* glsl */ `
   varying float vLevel;
   varying vec2 vInputs;
   varying float vPixels;
+  varying float vBroken;
   const vec3 OFF = vec3(0.085, 0.115, 0.175);
   // NAND outputs are amber, flip-flops (the state) cyan.
   vec3 lit(float level) {
@@ -202,6 +205,12 @@ const GATE_FRAGMENT = /* glsl */ `
       }
     } else {
       colour *= 0.5 + 0.2 * abs(vNormal.x);
+    }
+    // A broken gate: red, striped across the top, whatever its level.
+    if (vBroken > 0.5) {
+      float stripe = step(0.5, fract((vTop.x + vTop.y) * 9.0));
+      vec3 red = mix(vec3(0.55, 0.05, 0.06), vec3(1.0, 0.18, 0.16), stripe);
+      colour = vNormal.z > 0.5 ? mix(colour, red, 0.8) : red * 0.7;
     }
     gl_FragColor = vec4(stale(colour), 1.0);
   }
@@ -238,7 +247,7 @@ const WIRE_VERTEX = /* glsl */ `
     float halfWidth = max(${WIRE_HALF}, least);
     here += across * halfWidth * position.y + along * halfWidth * (position.x * 2.0 - 1.0);
     gl_Position = uProj * vec4(uView * here, 1.0);
-    vec2 wire = wireState(aWire.z);
+    vec4 wire = wireState(aWire.z);
     vLevel = wire.r * 255.0;
     vBusy = wire.g;
     vCover = clamp(${WIRE_HALF} / least, 0.0, 1.0);
@@ -487,7 +496,7 @@ export class SceneView {
     this.scene.background = new THREE.Color(0x05070c);
 
     this.modules = stateTexture(tree.count, 4);
-    this.wires = stateTexture(net.wireCount, 2);
+    this.wires = stateTexture(net.wireCount, 4);
     this.busy = new Uint8Array(tree.count);
     this.outputOfGate = new Uint32Array(tree.gateCount);
     const sheet = glyphSheet();
@@ -637,14 +646,17 @@ export class SceneView {
   /**
    * The wires as the simulation last saw them: a level and an activity for
    * each. `live` says whether they are being simulated now; if not, they
-   * are drawn without colour.
+   * are drawn without colour. `broken` are the indices of the broken gates,
+   * whose output wires are marked.
    */
-  setWires(levels: Uint8Array, activity: Uint8Array, live: boolean): void {
+  setWires(levels: Uint8Array, activity: Uint8Array, live: boolean, broken: Iterable<number> = []): void {
     const { data } = this.wires;
     for (let w = 0; w < levels.length; w++) {
-      data[w * 2] = levels[w]!;
-      data[w * 2 + 1] = activity[w]!;
+      data[w * 4] = levels[w]!;
+      data[w * 4 + 1] = activity[w]!;
+      data[w * 4 + 2] = 0;
     }
+    for (const gate of broken) data[this.outputOfGate[gate]! * 4 + 2] = 255;
     this.wires.texture.needsUpdate = true;
     this.uniforms.uLive!.value = live ? 1 : 0;
 

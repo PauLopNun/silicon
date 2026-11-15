@@ -28,6 +28,13 @@ export type ToWorker =
   | { type: 'step'; cycles: number }
   /** Run to the start of the next instruction (used while paused). */
   | { type: 'step-instruction' }
+  /**
+   * Break a gate (index in `NetlistInfo.gates`): its output stuck at 0 or 1,
+   * or mended with `null`. While any gate is broken only the gate engine runs.
+   */
+  | { type: 'break'; gate: number; level: 0 | 1 | null }
+  /** Mend every broken gate. */
+  | { type: 'mend-all' }
   | { type: 'engine'; engine: EngineKind }
   /** Target clock rate in cycles per second; `null` means as fast as possible. */
   | { type: 'clock'; hz: number | null }
@@ -84,6 +91,15 @@ export interface FrameState {
    * core writes it (see `explain.ts`). Empty while running.
    */
   explain: string;
+  /** The broken gates: for each, its index and the level it is stuck at. */
+  faults: Uint32Array;
+}
+
+/** The broken gates of a frame, as a map from gate index to the level it is stuck at. */
+export function faultMap(faults: Uint32Array): Map<number, 0 | 1> {
+  const map = new Map<number, 0 | 1>();
+  for (let i = 0; i + 1 < faults.length; i += 2) map.set(faults[i]!, faults[i + 1] ? 1 : 0);
+  return map;
 }
 
 export type FromWorker =

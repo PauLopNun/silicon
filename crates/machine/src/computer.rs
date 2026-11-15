@@ -59,8 +59,12 @@ impl Machine {
     }
 
     /// Hand the CPU over to the other engine, mid-instruction if need be.
+    ///
+    /// While a gate is broken ([`Machine::break_gate`]) only the gate engine
+    /// can run the CPU: the fast one has no gates to break, so it would run
+    /// a CPU that is not this one. Asking for it then changes nothing.
     pub fn set_engine(&mut self, kind: EngineKind) {
-        if kind == self.active {
+        if kind == self.active || (kind == EngineKind::Fast && !self.gate.faults().is_empty()) {
             return;
         }
         match kind {
@@ -123,6 +127,23 @@ impl Machine {
             EngineKind::Fast => self.fast.load_state(state),
             EngineKind::Gate => self.gate.load_state(state),
         }
+    }
+
+    /// Break a gate of the CPU on purpose (by netlist index): its output is
+    /// stuck at `level` until it is mended with `None`. Breaking one hands
+    /// the CPU to the gate engine, and it stays there until every gate is
+    /// mended. Broken gates stay broken through resets and new programs: it
+    /// is the hardware that is broken.
+    pub fn break_gate(&mut self, gate: usize, level: Option<bool>) {
+        if level.is_some() {
+            self.set_engine(EngineKind::Gate);
+        }
+        self.gate.force(gate, level);
+    }
+
+    /// The broken gates, by netlist index, and the level each is stuck at.
+    pub fn faults(&self) -> &[(usize, bool)] {
+        self.gate.faults()
     }
 
     /// Where the instruction now running began: the address its opcode was

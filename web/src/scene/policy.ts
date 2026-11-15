@@ -19,7 +19,10 @@ export type EngineMode = 'auto' | EngineKind;
  * @param inside how much of the gates of the CPU is in sight, from 0 (every
  *   block of the CPU is shut, or hidden) to 1
  */
-export function engineFor(mode: EngineMode, inside: number): EngineKind {
+export function engineFor(mode: EngineMode, inside: number, broken = 0): EngineKind {
+  // The fast engine has no gates to break: with one broken, it would not be
+  // running this CPU. (The core refuses it too.)
+  if (broken > 0) return 'gate';
   if (mode !== 'auto') return mode;
   // Half open: gates glimpsed through a lid that is still fading out are
   // shown as they were last computed, not worth slowing the program for.
@@ -32,7 +35,11 @@ export function parseEngineMode(text: string | null): EngineMode {
 }
 
 /** The words for the page: what is running and why. */
-export function engineNote(mode: EngineMode, engine: EngineKind, inside: number): string {
+export function engineNote(mode: EngineMode, engine: EngineKind, inside: number, broken = 0): string {
+  if (broken > 0) {
+    const gates = broken === 1 ? 'A gate is' : `${broken} gates are`;
+    return `${gates} broken, so only the gate engine can run this CPU: the fast one has no gates to break.`;
+  }
   if (engine === 'gate') {
     return mode === 'auto'
       ? 'You are looking inside the CPU, so every gate is being simulated and the program runs slower.'

@@ -212,6 +212,40 @@ impl Machine {
         self.activity.len()
     }
 
+    /// Break a gate of the CPU (by its index in [`Machine::gate_table`]):
+    /// `level` 0 or 1 sticks its output at that level, anything else mends
+    /// it. Breaking one moves the CPU to the gate engine, which it cannot
+    /// leave while any gate is broken.
+    pub fn break_gate(&mut self, gate: usize, level: i32) {
+        let gates = self.core.gate().sim().netlist().gates.len();
+        if gate >= gates {
+            return;
+        }
+        let level = match level {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        };
+        self.core.break_gate(gate, level);
+    }
+
+    /// Mend every broken gate.
+    pub fn mend_all(&mut self) {
+        let broken: Vec<usize> = self.core.faults().iter().map(|&(g, _)| g).collect();
+        for gate in broken {
+            self.core.break_gate(gate, None);
+        }
+    }
+
+    /// The broken gates: for each, its index and the level it is stuck at.
+    pub fn faults(&self) -> Vec<u32> {
+        self.core
+            .faults()
+            .iter()
+            .flat_map(|&(gate, level)| [gate as u32, level as u32])
+            .collect()
+    }
+
     /// Run to the start of the next instruction: until an opcode has been
     /// read, or the CPU has halted. At most 16 cycles, more than the longest
     /// instruction takes.
@@ -575,6 +609,26 @@ mod tests {
                 assert_eq!(doc, control::SIGNAL_DOCS[bit]);
             }
         }
+    }
+
+    #[test]
+    fn gates_can_be_broken_and_mended_from_the_page() {
+        let mut m = Machine::running("hello").unwrap();
+        m.break_gate(5, 1);
+        m.break_gate(9, 0);
+        assert_eq!(m.faults(), [5, 1, 9, 0]);
+        assert_eq!(m.engine(), "gate");
+        m.use_gate_engine(false);
+        assert_eq!(m.engine(), "gate");
+        m.break_gate(5, -1);
+        assert_eq!(m.faults(), [9, 0]);
+        // A gate that does not exist is ignored, not a crash.
+        m.break_gate(1_000_000, 1);
+        assert_eq!(m.faults(), [9, 0]);
+        m.mend_all();
+        assert!(m.faults().is_empty());
+        m.use_gate_engine(false);
+        assert_eq!(m.engine(), "fast");
     }
 
     #[test]

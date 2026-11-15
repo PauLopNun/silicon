@@ -59,6 +59,18 @@ impl GateCpu {
         self.sim.clear_toggles();
     }
 
+    /// Break a gate (by netlist index): its output stuck at a level, or
+    /// mended with `None`. See [`GateSim::force`].
+    pub fn force(&mut self, gate: usize, level: Option<bool>) {
+        self.sim.force(gate, level);
+        self.sim.settle();
+    }
+
+    /// The broken gates and the level each is stuck at.
+    pub fn faults(&self) -> &[(usize, bool)] {
+        self.sim.faults()
+    }
+
     /// Did the last cycle load an opcode into the instruction register?
     pub fn fetched(&self) -> bool {
         self.fetched

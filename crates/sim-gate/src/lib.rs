@@ -48,6 +48,11 @@ pub struct GateSim {
     cycles: u64,
     /// The cycle at which the counts were last cleared.
     counting_since: u64,
+    /// Per gate of the netlist: its place in `nands` or in `dffs`.
+    slots: Vec<u32>,
+    /// Gates broken on purpose, by netlist index, with the level each is
+    /// stuck at. See [`GateSim::force`].
+    faults: Vec<(usize, bool)>,
 }
 
 impl GateSim {
@@ -68,6 +73,17 @@ impl GateSim {
             .filter(|g| g.kind == GateKind::Dff)
             .map(|g| [g.a.0, g.out.0])
             .collect();
+        let mut slots = vec![0u32; netlist.gates.len()];
+        for (slot, &gate) in lv.order.iter().enumerate() {
+            slots[gate as usize] = slot as u32;
+        }
+        let mut next_dff = 0;
+        for (gate, g) in netlist.gates.iter().enumerate() {
+            if g.kind == GateKind::Dff {
+                slots[gate] = next_dff;
+                next_dff += 1;
+            }
+        }
         let mut words = vec![0u32; netlist.wire_count as usize];
         words[Wire::ONE.index()] = 1;
         let latch = vec![0u32; dffs.len()];
@@ -79,6 +95,8 @@ impl GateSim {
             latch,
             cycles: 0,
             counting_since: 0,
+            slots,
+            faults: Vec::new(),
         };
         sim.settle();
         // Settling from the all-zero start is not something that happened.
@@ -118,6 +136,57 @@ impl GateSim {
     pub fn set_word(&mut self, wires: &[Wire], value: u64) {
         for (i, w) in wires.iter().enumerate() {
             self.drive(w.index(), (value >> i) as u32);
+        }
+        // A flip-flop that is stuck stays stuck, whatever is loaded into it.
+        if !self.faults.is_empty() {
+            self.hold_stuck_flip_flops();
+        }
+    }
+
+    /// Break a gate on purpose: from now on its output is stuck at `level`,
+    /// whatever its inputs say, until it is mended with `None`. This is the
+    /// classic stuck-at fault of chip testing.
+    ///
+    /// Costs nothing while simulating: a NAND stuck at 1 is rewired to take
+    /// its inputs from the constant 0 (and one stuck at 0 from the constant
+    /// 1), and a stuck flip-flop latches a constant. Mending it rewires it
+    /// as the netlist says. Call [`GateSim::settle`] afterwards.
+    pub fn force(&mut self, gate: usize, level: Option<bool>) {
+        let g = self.netlist.gates[gate];
+        let slot = self.slots[gate] as usize;
+        let constant = |level: bool| if level { Wire::ONE.0 } else { Wire::ZERO.0 };
+        match (g.kind, level) {
+            (GateKind::Nand, Some(level)) => {
+                // nand(0, 0) = 1 and nand(1, 1) = 0.
+                let input = constant(!level);
+                self.nands[slot] = [input, input, g.out.0];
+            }
+            (GateKind::Nand, None) => self.nands[slot] = [g.a.0, g.b.0, g.out.0],
+            (GateKind::Dff, Some(level)) => {
+                self.dffs[slot] = [constant(level), g.out.0];
+                self.drive(g.out.index(), level as u32);
+            }
+            (GateKind::Dff, None) => self.dffs[slot] = [g.a.0, g.out.0],
+        }
+        self.faults.retain(|&(f, _)| f != gate);
+        if let Some(level) = level {
+            self.faults.push((gate, level));
+        }
+    }
+
+    /// The gates broken with [`GateSim::force`], by netlist index, with the
+    /// level each is stuck at, in the order they were broken.
+    pub fn faults(&self) -> &[(usize, bool)] {
+        &self.faults
+    }
+
+    fn hold_stuck_flip_flops(&mut self) {
+        for i in 0..self.faults.len() {
+            let (gate, level) = self.faults[i];
+            let g = self.netlist.gates[gate];
+            if g.kind == GateKind::Dff {
+                self.drive(g.out.index(), level as u32);
+            }
         }
     }
 
@@ -218,6 +287,91 @@ mod tests {
             sim.settle();
             assert_eq!(sim.get(y), va ^ vb, "{va} xor {vb}");
         }
+    }
+
+    #[test]
+    fn a_stuck_nand_ignores_its_inputs_until_it_is_mended() {
+        let nl = demo::xor();
+        let (a, b, y) = (nl.inputs[0].1, nl.inputs[1].1, nl.outputs[0].1);
+        // The gate that drives the output.
+        let last = nl.gates.iter().position(|g| g.out == y).unwrap();
+        let mut sim = GateSim::new(nl).unwrap();
+        for stuck in [false, true] {
+            sim.force(last, Some(stuck));
+            assert_eq!(sim.faults(), [(last, stuck)]);
+            for (va, vb) in [(false, false), (false, true), (true, false), (true, true)] {
+                sim.set(a, va);
+                sim.set(b, vb);
+                sim.settle();
+                assert_eq!(
+                    sim.get(y),
+                    stuck,
+                    "{va} xor {vb} with the output stuck at {stuck}"
+                );
+            }
+        }
+        sim.force(last, None);
+        assert!(sim.faults().is_empty());
+        for (va, vb) in [(false, false), (false, true), (true, false), (true, true)] {
+            sim.set(a, va);
+            sim.set(b, vb);
+            sim.settle();
+            assert_eq!(sim.get(y), va ^ vb, "mended: {va} xor {vb}");
+        }
+    }
+
+    #[test]
+    fn a_stuck_flip_flop_holds_its_level_through_clocks_and_loads() {
+        // q divides the clock by two, until it is stuck.
+        let mut b = Builder::new("toggle");
+        let q = b.wire();
+        let d = b.nand(q, q);
+        b.dff_into(q, d);
+        let nl = b.finish().unwrap();
+        let dff = nl
+            .gates
+            .iter()
+            .position(|g| g.kind == GateKind::Dff)
+            .unwrap();
+        let mut sim = GateSim::new(nl).unwrap();
+        sim.force(dff, Some(true));
+        sim.settle();
+        for _ in 0..4 {
+            assert!(sim.get(q));
+            assert!(!sim.get(d));
+            sim.tick();
+        }
+        // Loading a state into it does not unstick it.
+        sim.set_word(&[q], 0);
+        assert!(sim.get(q));
+        sim.force(dff, None);
+        sim.tick();
+        assert!(!sim.get(q), "mended: it toggles again");
+        sim.tick();
+        assert!(sim.get(q));
+    }
+
+    #[test]
+    fn breaking_and_mending_many_gates_leaves_the_circuit_as_it_was() {
+        let nl = demo::xor();
+        let gates = nl.gates.len();
+        let (a, b, y) = (nl.inputs[0].1, nl.inputs[1].1, nl.outputs[0].1);
+        let mut sim = GateSim::new(nl).unwrap();
+        for g in 0..gates {
+            sim.force(g, Some(g % 2 == 0));
+        }
+        // Breaking one twice keeps one entry, with the last level.
+        sim.force(0, Some(false));
+        assert_eq!(sim.faults().len(), gates);
+        assert!(sim.faults().contains(&(0, false)));
+        for g in 0..gates {
+            sim.force(g, None);
+        }
+        assert!(sim.faults().is_empty());
+        sim.set(a, true);
+        sim.set(b, false);
+        sim.settle();
+        assert!(sim.get(y));
     }
 
     #[test]

@@ -9,6 +9,15 @@ describe('engineFor', () => {
     expect(engineFor('auto', 1)).toBe('gate');
   });
 
+  it('runs the gates while any gate is broken, whatever was asked for', () => {
+    for (const mode of ['auto', 'fast', 'gate'] as const) {
+      expect(engineFor(mode, 0, 1)).toBe('gate');
+      expect(engineFor(mode, 0, 3)).toBe('gate');
+    }
+    expect(engineNote('fast', 'gate', 0, 1)).toMatch(/^A gate is broken/);
+    expect(engineNote('auto', 'gate', 0, 3)).toMatch(/^3 gates are broken/);
+  });
+
   it('does as it is told when an engine was asked for', () => {
     for (const inside of [0, 0.3, 1]) {
       expect(engineFor('gate', inside)).toBe('gate');
