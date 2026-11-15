@@ -13,6 +13,7 @@ silicon-hdl.workspace = true
 silicon-isa.workspace = true
 silicon-machine.workspace = true
 silicon-programs.workspace = true
+silicon-sim-gate.workspace = true
 wasm-bindgen.workspace = true
 
 [package.metadata.wasm-pack.profile.release]

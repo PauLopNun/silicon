@@ -35,6 +35,10 @@ export type ToWorker =
   | { type: 'break'; gate: number; level: 0 | 1 | null }
   /** Mend every broken gate. */
   | { type: 'mend-all' }
+  /** The memory made of gates: set its inputs (reading follows at once). */
+  | { type: 'ram'; addr: number; data: number; write: boolean }
+  /** The memory made of gates: one clock edge (writes, if writing is on). */
+  | { type: 'ram-clock' }
   | { type: 'engine'; engine: EngineKind }
   /** Target clock rate in cycles per second; `null` means as fast as possible. */
   | { type: 'clock'; hz: number | null }
@@ -93,6 +97,8 @@ export interface FrameState {
   explain: string;
   /** The broken gates: for each, its index and the level it is stuck at. */
   faults: Uint32Array;
+  /** The memory made of gates: its wires' levels and activity, every word, and its data out. */
+  ram: { wires: Uint8Array; activity: Uint8Array; words: Uint8Array; out: number };
 }
 
 /** The broken gates of a frame, as a map from gate index to the level it is stuck at. */
@@ -103,7 +109,14 @@ export function faultMap(faults: Uint32Array): Map<number, 0 | 1> {
 }
 
 export type FromWorker =
-  | ({ type: 'ready'; version: string; engine: EngineKind; programs: ProgramInfo[] } & NetlistInfo)
+  | ({
+      type: 'ready';
+      version: string;
+      engine: EngineKind;
+      programs: ProgramInfo[];
+      /** The memory made of gates (`RamExhibit`): its netlist, and words, bits per word, address bits. */
+      ram: NetlistInfo & { shape: Uint32Array };
+    } & NetlistInfo)
   | FrameState
   | { type: 'error'; message: string };
 

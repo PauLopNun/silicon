@@ -28,6 +28,7 @@
 pub mod board;
 mod computer;
 pub mod demo;
+pub mod exhibit;
 pub mod gate;
 pub mod hw;
 pub mod lockstep;

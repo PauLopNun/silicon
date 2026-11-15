@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { expectProperLayout, expectProperRouting } from '../testing/checks';
-import { demoMachine, netlistOf } from '../testing/core';
+import { demoMachine, netlistOf, ramNetlist } from '../testing/core';
 import { FLOORPLAN } from './floorplan';
 import { layoutScene, rectOf, type Arrangement } from './layout';
 import { routeWires } from './route';
@@ -38,12 +38,22 @@ describe('the CPU as a scene', () => {
   it('has a floor plan that names every block it arranges, and only blocks that exist', () => {
     const named = (a: Arrangement): string[] =>
       typeof a === 'string' ? [a] : ('row' in a ? a.row : a.column).flatMap(named);
+    // Each arrangement belongs to the CPU or to the memory made of gates.
+    const ram = buildTree(ramNetlist());
     for (const [path, arrangement] of Object.entries(FLOORPLAN)) {
-      const module = moduleAt(tree, path);
+      const home = path === 'ram' || path.startsWith('ram/') ? ram : tree;
+      const module = moduleAt(home, path);
       expect(module, path).toBeGreaterThanOrEqual(0);
-      const children = tree.children[module]!.map((c) => tree.names[c]!);
+      const children = home.children[module]!.map((c) => home.names[c]!);
       expect(named(arrangement).sort()).toEqual([...children].sort());
     }
+  });
+
+  it('lays out the memory made of gates properly too', () => {
+    const ram = buildTree(ramNetlist());
+    expect(ram.names[0]).toBe('ram');
+    expect(Array.from(ram.kindOfGate).filter((k) => k === 1).length).toBe(32);
+    expectProperLayout(ram, layoutScene(ram, FLOORPLAN));
   });
 
   it('is a compact rectangle, not a strip', () => {

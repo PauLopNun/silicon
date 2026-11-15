@@ -65,9 +65,10 @@
       #status { margin-top: auto; }
       #main { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
       /* The scene takes every gesture made on it: nothing scrolls or zooms the page from here. */
-      #scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
+      #scene, #ram-scene { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none;
         cursor: grab; }
-      #scene:active { cursor: grabbing; }
+      #scene:active, #ram-scene:active { cursor: grabbing; }
+      body[data-showing="ram"] #engine-note { display: none; }
       /* What lies over the scene lets the pointer through, except its buttons. */
       .over { position: absolute; pointer-events: none; }
       .over button { pointer-events: auto; }
@@ -85,7 +86,14 @@
         color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
       #gate-panel { background: #0c111bee; border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px;
         display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; pointer-events: auto; max-width: 100%; }
-      #gate-panel[hidden] { display: none; }
+      #gate-panel[hidden], #ram-panel[hidden], #scene[hidden], #ram-scene[hidden] { display: none; }
+      #ram-panel { background: #0c111bee; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px;
+        display: flex; flex-direction: column; gap: 6px; pointer-events: auto; max-width: min(100%, 560px); }
+      #ram-panel p { color: var(--dim); }
+      #ram-panel .row { gap: 4px; }
+      #ram-panel button { min-width: 0; padding: 2px 9px; }
+      #ram-panel b { color: var(--hot); font-weight: 600; }
+      #top > .group button { min-width: 0; padding: 3px 9px; background: #0c111bd9; }
       #gate-panel button { min-width: 0; padding: 3px 9px; }
       #gate-name { color: var(--ink); overflow-wrap: anywhere; }
       #gate-panel[data-broken] #gate-name { color: #ff5a4f; }
@@ -174,12 +182,31 @@
     </section>
     <section id="main">
       <canvas id="scene" aria-label="The CPU, from the whole of it down to every gate; a gate or a wire is lit when it is at 1"></canvas>
+      <canvas id="ram-scene" hidden aria-label="A memory of eight four-bit words made of gates"></canvas>
       <div id="top" class="over">
+        <div class="group" role="group" aria-label="What to look at">
+          <button id="show-cpu" aria-pressed="true" title="The CPU of the computer">cpu</button>
+          <button id="show-ram" aria-pressed="false" title="A small memory made of gates, to see how memory works">ram</button>
+        </div>
         <nav id="crumbs" aria-label="Where the camera is"></nav>
         <button id="whole" title="Show the whole CPU (0)">whole</button>
         <div id="legend"><i style="background: var(--hot)"></i>wire or NAND at 1<i style="background: var(--state)"></i>flip-flop at 1</div>
       </div>
       <div id="bottom" class="over">
+        <div id="ram-panel" hidden>
+          <p>
+            The computer's memory is an array, not gates (it would be half a million flip-flops). This is
+            the same thing small enough to see: 8 words of 4 bits, a flip-flop per bit. Choose a word, set
+            the bits, turn writing on and give it a clock edge. Reading needs no clock.
+          </p>
+          <span class="row">address <span id="ram-addr" class="row"></span> <b id="ram-addr-value"></b></span>
+          <span class="row">data in <span id="ram-data" class="row"></span> <b id="ram-data-value"></b></span>
+          <span class="row">
+            <button id="ram-write" aria-pressed="false" title="The next clock edge writes the data into the chosen word">write</button>
+            <button id="ram-clock" title="One clock edge">clock ↑</button>
+            data out <b id="ram-out"></b>
+          </span>
+        </div>
         <div id="gate-panel" hidden>
           <span id="gate-name"></span>
           <span class="row">

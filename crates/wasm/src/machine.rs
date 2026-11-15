@@ -4,7 +4,7 @@
 //! a length into WASM memory, to be viewed with a typed array. Static
 //! information about the netlist is returned once as flat arrays.
 
-use silicon_hdl::GateKind;
+use silicon_hdl::{GateKind, Netlist};
 use silicon_isa::{form, Insn};
 use silicon_machine::board::RomTooLarge;
 use silicon_machine::hw::control;
@@ -26,6 +26,35 @@ pub struct Machine {
     activity: Vec<u8>,
     /// The clock cycle at which the wires' changes began to be counted.
     activity_since: u64,
+}
+
+/// Every gate of a netlist, [`GATE_FIELDS`] numbers each: kind (0 = NAND,
+/// 1 = DFF), input wire `a`, input wire `b`, output wire, module index.
+pub(crate) fn gate_table(netlist: &Netlist) -> Vec<u32> {
+    let mut out = Vec::with_capacity(netlist.gates.len() * GATE_FIELDS);
+    for g in &netlist.gates {
+        let kind = match g.kind {
+            GateKind::Nand => 0,
+            GateKind::Dff => 1,
+        };
+        out.extend_from_slice(&[kind, g.a.0, g.b.0, g.out.0, g.module.0]);
+    }
+    out
+}
+
+/// Parent of each module of a netlist, by index; the top module's is -1.
+pub(crate) fn module_parents(netlist: &Netlist) -> Vec<i32> {
+    netlist
+        .modules
+        .iter()
+        .map(|m| m.parent.map_or(-1, |p| p.0 as i32))
+        .collect()
+}
+
+/// Names of the modules of a netlist, by index, separated by newlines.
+pub(crate) fn module_names(netlist: &Netlist) -> String {
+    let names: Vec<&str> = netlist.modules.iter().map(|m| m.name.as_str()).collect();
+    names.join("\n")
 }
 
 /// How busy a wire has been, as one byte: 0 if it did not change at all,
@@ -324,33 +353,17 @@ impl Machine {
     /// Every gate of the CPU, five numbers each: kind (0 = NAND, 1 = DFF),
     /// input wire `a`, input wire `b`, output wire, module index.
     pub fn gate_table(&self) -> Vec<u32> {
-        let netlist = self.core.gate().sim().netlist();
-        let mut out = Vec::with_capacity(netlist.gates.len() * GATE_FIELDS);
-        for g in &netlist.gates {
-            let kind = match g.kind {
-                GateKind::Nand => 0,
-                GateKind::Dff => 1,
-            };
-            out.extend_from_slice(&[kind, g.a.0, g.b.0, g.out.0, g.module.0]);
-        }
-        out
+        gate_table(self.core.gate().sim().netlist())
     }
 
     /// Parent of each module, by index; the top module's parent is -1.
     pub fn module_parents(&self) -> Vec<i32> {
-        let netlist = self.core.gate().sim().netlist();
-        netlist
-            .modules
-            .iter()
-            .map(|m| m.parent.map_or(-1, |p| p.0 as i32))
-            .collect()
+        module_parents(self.core.gate().sim().netlist())
     }
 
     /// Names of the modules, by index, separated by newlines.
     pub fn module_names(&self) -> String {
-        let netlist = self.core.gate().sim().netlist();
-        let names: Vec<&str> = netlist.modules.iter().map(|m| m.name.as_str()).collect();
-        names.join("\n")
+        module_names(self.core.gate().sim().netlist())
     }
 
     /// The public name of a gate: `cpu/alu/adder8/fa3/nand2`.

@@ -8,7 +8,7 @@
  * The programs arrive as source text inside the WASM core and are assembled
  * or compiled there when one is chosen.
  */
-import init, { Machine, program_list, version } from './wasm-pkg/silicon_wasm.js';
+import init, { Machine, program_list, RamExhibit, version } from './wasm-pkg/silicon_wasm.js';
 import { chunkSize, Pacer, RateMeter } from './clock';
 import { parsePrograms } from './programs';
 import type { EngineKind, FromWorker, ToWorker } from './protocol';
@@ -35,6 +35,8 @@ async function main(): Promise<void> {
   // A computer with nothing in ROM yet. (Memory full of zeroes is a `hlt`
   // at address 0: it would stop at once.)
   const machine = new Machine(new Uint8Array(0));
+  /** The memory made of gates, apart from the computer. */
+  const ram = new RamExhibit();
   /** The program in ROM; none until the first is loaded, below. */
   let program = '';
   /** Times the computer has been started; see `FrameState.boot`. */
@@ -60,6 +62,9 @@ async function main(): Promise<void> {
     const activity = copy(machine.activity_ptr(), machine.activity_len());
     const arch = machine.arch_state();
     const written = machine.take_console();
+    ram.look_at_wires();
+    const ramWires = copy(ram.wires_ptr(), ram.wires_len());
+    const ramActivity = copy(ram.activity_ptr(), ram.wires_len());
     post(
       {
         type: 'frame',
@@ -78,8 +83,9 @@ async function main(): Promise<void> {
         // Only while paused: running, it would be stale before it arrived.
         explain: running ? '' : machine.explain(),
         faults: machine.faults(),
+        ram: { wires: ramWires, activity: ramActivity, words: ram.words(), out: ram.read() },
       },
-      [framebuffer.buffer, wires.buffer, activity.buffer, arch.buffer, written.buffer],
+      [framebuffer.buffer, wires.buffer, activity.buffer, arch.buffer, written.buffer, ramWires.buffer, ramActivity.buffer],
     );
     dirty = false;
     lastPublish = performance.now();
@@ -94,6 +100,13 @@ async function main(): Promise<void> {
     moduleParents: machine.module_parents(),
     moduleNames: machine.module_names().split('\n'),
     wireCount: machine.wires_len(),
+    ram: {
+      gates: ram.gate_table(),
+      moduleParents: ram.module_parents(),
+      moduleNames: ram.module_names().split('\n'),
+      wireCount: ram.wires_len(),
+      shape: ram.shape(),
+    },
   });
 
   /** Build a program from its source and start it from power-on. */
@@ -127,6 +140,12 @@ async function main(): Promise<void> {
         // Breaking a gate may have moved the CPU to the gate engine.
         capacity.reset();
         pacer.clear();
+        break;
+      case 'ram':
+        ram.set_inputs(command.addr, command.data, command.write);
+        break;
+      case 'ram-clock':
+        ram.clock();
         break;
       case 'mend-all':
         machine.mend_all();

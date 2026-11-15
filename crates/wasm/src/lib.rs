@@ -8,8 +8,10 @@
 //! assembled or compiled in the browser when they are chosen.
 
 mod machine;
+mod ram;
 
 pub use machine::{Machine, ARCH_STATE_BYTES, GATE_FIELDS};
+pub use ram::RamExhibit;
 
 use wasm_bindgen::prelude::*;
 

@@ -7,7 +7,7 @@
  */
 import { readFileSync } from 'node:fs';
 import type { NetlistInfo } from '../protocol';
-import { initSync, Machine } from '../wasm-pkg/silicon_wasm.js';
+import { initSync, Machine, RamExhibit } from '../wasm-pkg/silicon_wasm.js';
 
 let loaded = false;
 
@@ -18,6 +18,18 @@ export function demoMachine(): Machine {
     loaded = true;
   }
   return Machine.demo();
+}
+
+/** The memory made of gates' netlist, as the worker sends it to the page. */
+export function ramNetlist(): NetlistInfo {
+  demoMachine();
+  const ram = new RamExhibit();
+  return {
+    gates: ram.gate_table(),
+    moduleParents: ram.module_parents(),
+    moduleNames: ram.module_names().split('\n'),
+    wireCount: ram.wires_len(),
+  };
 }
 
 /** The CPU's netlist, as the worker sends it to the page. */

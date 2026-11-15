@@ -155,6 +155,32 @@ await check('a gate can be broken, keeps the gate engine, and can be mended', '?
   await page.until(`${engine} === 'fast'`, 8000, 'the fast engine once nothing is broken');
 });
 
+await check('the memory made of gates writes a word and reads it back', '?view=ram', async (page) => {
+  await page.until(`document.body.dataset.showing === 'ram' && !document.getElementById('ram-panel').hidden`, 5000, 'the memory on view');
+  const visible = await page.evaluate(`[getComputedStyle(document.getElementById('scene')).display, getComputedStyle(document.getElementById('ram-scene')).display, document.getElementById('ram-scene').clientWidth]`);
+  expect(visible[0] === 'none' && visible[1] === 'block' && visible[2] > 300, `canvases: ${JSON.stringify(visible)}`);
+  const click = (selector) => page.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
+  // 1010 into word 5.
+  await click('#ram-addr [data-addr="5"]');
+  await click('#ram-data [data-bit="3"]');
+  await click('#ram-data [data-bit="1"]');
+  expect((await page.evaluate(text('ram-data-value'))) === '1010', 'the data bits are not 1010');
+  await click('#ram-write');
+  await click('#ram-clock');
+  await page.until(`${text('ram-out')} === '1010'`, 5000, 'word 5 to read 1010');
+  // Another word still holds 0, and reading it needs no clock.
+  await click('#ram-addr [data-addr="2"]');
+  await page.until(`${text('ram-out')} === '0000'`, 5000, 'word 2 to read 0000');
+  // Clocking with writing off changes nothing.
+  await click('#ram-write');
+  await click('#ram-clock');
+  await click('#ram-addr [data-addr="5"]');
+  await page.until(`${text('ram-out')} === '1010'`, 5000, 'word 5 to still read 1010');
+  // Back to the CPU.
+  await click('#show-cpu');
+  await page.until(`document.body.dataset.showing === 'cpu' && new URLSearchParams(location.search).get('view') === null`, 5000, 'the CPU back on view');
+});
+
 // ── the scene ──
 
 await check('the page opens on the whole CPU, on the fast engine at full speed', '', async (page) => {

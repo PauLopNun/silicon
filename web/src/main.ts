@@ -69,8 +69,18 @@ interface Scene {
   nav: Navigator;
   /** The blocks that show a register, and how to write its value. */
   values: { module: number; text: (typeof VALUES)[string] }[];
+  net: NetlistInfo;
+  /** The levels of its wires, as last reported. */
+  levels: () => Uint8Array | undefined;
 }
+/** The CPU. */
 let scene: Scene | undefined;
+/** The memory made of gates. */
+let ramScene: Scene | undefined;
+/** Which of the two is on view. A link can ask for the memory: ?view=ram */
+let showing: 'cpu' | 'ram' = link.get('view') === 'ram' ? 'ram' : 'cpu';
+/** The scene on view. */
+const active = (): Scene | undefined => (showing === 'ram' ? ramScene : scene);
 /** Something changed that the picture does not show yet. */
 let stale = true;
 /** What the person asked for: an engine, or whichever the view needs. */
@@ -143,29 +153,133 @@ function buildScene(net: NetlistInfo): Scene {
     const module = moduleAt(view.tree, path);
     return module < 0 ? [] : [{ module, text }];
   });
-  return { view, nav, values };
+  return { view, nav, values, net, levels: () => state?.wires };
+}
+
+/** The memory made of gates, on a canvas of its own. */
+function buildRamScene(net: NetlistInfo): Scene {
+  const view = new SceneView(el<HTMLCanvasElement>('ram-scene'), net, FLOORPLAN);
+  const nav = new Navigator(view, {
+    invalidate: () => (stale = true),
+    hover: (hit) => {
+      pointed = hit;
+      showPointed();
+      stale = true;
+    },
+  });
+  return { view, nav, values: [], net, levels: () => state?.ram.wires };
+}
+
+/** The memory's inputs as set on the page. What it holds comes from the simulation. */
+const ramInputs = { addr: 0, data: 0, write: false };
+let ramBits = 4;
+
+const bits = (value: number, n: number) => value.toString(2).padStart(n, '0');
+
+function sendRamInputs(): void {
+  send({ type: 'ram', ...ramInputs });
+  el('ram-addr-value').textContent = String(ramInputs.addr);
+  el('ram-data-value').textContent = bits(ramInputs.data, ramBits);
+  for (const button of el('ram-data').children) {
+    const bit = Number((button as HTMLElement).dataset.bit);
+    button.setAttribute('aria-pressed', String(((ramInputs.data >> bit) & 1) === 1));
+    button.textContent = String((ramInputs.data >> bit) & 1);
+  }
+  for (const button of el('ram-addr').children) {
+    button.setAttribute('aria-pressed', String(Number((button as HTMLElement).dataset.addr) === ramInputs.addr));
+  }
+  el('ram-write').setAttribute('aria-pressed', String(ramInputs.write));
+}
+
+/** Buttons for the address, a toggle per bit of the data, writing and the clock. */
+function buildRamPanel(shape: Uint32Array): void {
+  const [words = 8, width = 4] = shape;
+  ramBits = width;
+  el('ram-addr').replaceChildren(
+    ...Array.from({ length: words }, (_, addr) => {
+      const button = document.createElement('button');
+      button.textContent = String(addr);
+      button.dataset.addr = String(addr);
+      button.title = `Word ${addr}`;
+      button.addEventListener('click', () => {
+        ramInputs.addr = addr;
+        sendRamInputs();
+      });
+      return button;
+    }),
+  );
+  // Most significant bit first, as numbers are written.
+  el('ram-data').replaceChildren(
+    ...Array.from({ length: width }, (_, i) => {
+      const bit = width - 1 - i;
+      const button = document.createElement('button');
+      button.dataset.bit = String(bit);
+      button.title = `Bit ${bit} of the word to write`;
+      button.addEventListener('click', () => {
+        ramInputs.data ^= 1 << bit;
+        sendRamInputs();
+      });
+      return button;
+    }),
+  );
+  sendRamInputs();
+}
+
+/** What the memory holds and reads out, on its blocks and in the panel. */
+function showRam(words: Uint8Array, out: number): void {
+  if (!ramScene) return;
+  const { view } = ramScene;
+  words.forEach((word, i) => view.setValue(moduleAt(view.tree, `ram/word${i}`), bits(word, ramBits)));
+  view.setValue(moduleAt(view.tree, 'ram/read'), bits(out, ramBits));
+  el('ram-out').textContent = bits(out, ramBits);
+}
+
+/** Show the CPU or the memory made of gates. */
+function setShowing(next: 'cpu' | 'ram'): void {
+  showing = next;
+  el('scene').hidden = next !== 'cpu';
+  el('ram-scene').hidden = next !== 'ram';
+  el('ram-panel').hidden = next !== 'ram';
+  el('gate-panel').hidden = true;
+  if (next === 'cpu') showGatePanel();
+  el('show-cpu').setAttribute('aria-pressed', String(next === 'cpu'));
+  el('show-ram').setAttribute('aria-pressed', String(next === 'ram'));
+  document.body.dataset.showing = next;
+  pointed = undefined;
+  showPointed();
+  focus = -1;
+  const current = active();
+  if (current) {
+    current.view.resize();
+    if (next === 'ram' && current.view.camera.distance === 1) current.nav.jumpTo(current.nav.home());
+  }
+  replaceSearch(searchWith(location.search, 'view', next === 'ram' ? 'ram' : undefined));
+  stale = true;
 }
 
 /** Say what the pointer is on, and put a mark around it. */
 function showPointed(): void {
   const hover = el('hover');
-  if (!scene || !pointed) {
+  const current = active();
+  if (!current || !pointed) {
     hover.hidden = true;
-    scene?.view.setMark(undefined);
+    current?.view.setMark(undefined);
     return;
   }
-  const { view } = scene;
+  const { view, net } = current;
   const { tree, layout } = view;
   hover.hidden = false;
   if (pointed.gate >= 0) {
     const g = pointed.gate;
     view.setMark(gateRect(layout, g), GATE_TOP);
     let text = gatePath(tree, g);
-    if (state && netlist) {
-      const wire = (field: number) => state!.wires[netlist!.gates[g * GATE_FIELDS + field] ?? 0] ?? 0;
+    const levels = current.levels();
+    if (state && levels) {
+      const wire = (field: number) => levels[net.gates[g * GATE_FIELDS + field] ?? 0] ?? 0;
       const isNand = tree.kindOfGate[g] === 0;
       text += isNand ? `   ${wire(1)} nand ${wire(2)} = ${wire(3)}` : `   d ${wire(1)}   q ${wire(3)}`;
-      if (state.engine !== 'gate') text += '   (not live)';
+      // The memory always runs on its gates; the CPU only on the gate engine.
+      if (current === scene && state.engine !== 'gate') text += '   (not live)';
     }
     hover.textContent = text;
   } else {
@@ -178,9 +292,10 @@ function showPointed(): void {
 
 /** The trail of modules from the whole CPU to where the camera is; each leads back to itself. */
 function showFocus(module: number): void {
-  if (!scene || module === focus) return;
+  const current = active();
+  if (!current || module === focus) return;
   focus = module;
-  const { tree } = scene.view;
+  const { tree } = current.view;
   const trail: number[] = [];
   for (let m = module; m >= 0; m = tree.parents[m]!) trail.unshift(m);
   el('crumbs').replaceChildren(
@@ -189,7 +304,7 @@ function showFocus(module: number): void {
       button.textContent = tree.names[m]!;
       button.title = `Go to ${tree.paths[m]!}`;
       if (i === trail.length - 1) button.setAttribute('aria-current', 'location');
-      button.addEventListener('click', () => (m === 0 ? scene!.nav.flyTo(scene!.nav.home()) : scene!.nav.flyToModule(m)));
+      button.addEventListener('click', () => (m === 0 ? current.nav.flyTo(current.nav.home()) : current.nav.flyToModule(m)));
       return button;
     }),
   );
@@ -198,16 +313,20 @@ function showFocus(module: number): void {
 
 /** After a picture: what follows from where the camera is. */
 function afterRender(): void {
-  if (!scene) return;
-  const { view, nav } = scene;
+  const current = active();
+  if (!current || !scene) return;
+  const { view, nav } = current;
   showFocus(focusModule(view.tree, view.layout, view.lod, view.camera.x, view.camera.y));
-  // Once the camera is at rest the address bar leads back to this place.
-  if (!nav.moving) replaceSearch(searchWith(location.search, 'at', focus > 0 ? view.tree.paths[focus] : undefined));
+  // Once the camera is at rest the address bar leads back to this place in the CPU.
+  if (current === scene && !nav.moving) {
+    replaceSearch(searchWith(location.search, 'at', focus > 0 ? view.tree.paths[focus] : undefined));
+  }
 
   // The gate engine runs exactly while gates are in sight: while one of the
   // CPU's blocks is open. With the CPU open and its blocks closed only the
   // wires between blocks show, and those are not worth a game at 2 frames/s.
-  const inside = view.lod.entered[0]!;
+  // Looking at the memory, no gate of the CPU is in sight.
+  const inside = current === scene ? scene.view.lod.entered[0]! : 0;
   const engine = engineFor(mode, inside, faults.size);
   if (state && engine !== state.engine && engine !== asked) {
     asked = engine;
@@ -225,12 +344,13 @@ function afterRender(): void {
 const renderTimes: number[] = [];
 
 function frame(now: number): void {
-  if (scene) {
-    const moved = scene.nav.tick(now);
-    if (scene.view.resize() && (moved || stale)) {
+  const current = active();
+  if (current) {
+    const moved = current.nav.tick(now);
+    if (current.view.resize() && (moved || stale)) {
       stale = false;
       const start = performance.now();
-      scene.view.render();
+      current.view.render();
       afterRender();
       renderTimes.push(performance.now() - start);
       if (renderTimes.length > 120) renderTimes.shift();
@@ -247,7 +367,6 @@ function frame(now: number): void {
 const CONSOLE_LINES = 12;
 const consoleView = el('console');
 let programs: ProgramInfo[] = [];
-let netlist: NetlistInfo | undefined;
 // What the page shows of the program and of the run. Both follow the
 // simulation: a button only asks, and the next frame says what happened.
 let shownProgram = '';
@@ -350,9 +469,13 @@ function show(msg: FrameState): void {
     if (changed) showGatePanel();
     scene.view.setWires(msg.wires, msg.activity, msg.engine === 'gate', faults.keys());
     for (const { module, text } of scene.values) scene.view.setValue(module, text(s));
-    if (pointed) showPointed();
-    stale = true;
   }
+  if (ramScene) {
+    ramScene.view.setWires(msg.ram.wires, msg.ram.activity, true);
+    showRam(msg.ram.words, msg.ram.out);
+  }
+  if (pointed) showPointed();
+  stale = true;
 
   const now = performance.now();
   speed.record(now, msg.cycles);
@@ -377,8 +500,10 @@ worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const msg = e.data;
   if (msg.type === 'ready') {
     buildProgramButtons(msg.programs);
-    netlist = msg;
     scene = buildScene(msg);
+    ramScene = buildRamScene(msg.ram);
+    buildRamPanel(msg.ram.shape);
+    setShowing(showing);
     const nands = msg.gates.filter((_, i) => i % GATE_FIELDS === 0 && msg.gates[i] === 0).length;
     const dffs = msg.gates.length / GATE_FIELDS - nands;
     el('status').textContent =
@@ -493,7 +618,16 @@ for (const select of document.querySelectorAll('select')) {
   });
 }
 
-new ResizeObserver(() => (stale = true)).observe(el('scene'));
+const resized = new ResizeObserver(() => (stale = true));
+resized.observe(el('scene'));
+resized.observe(el('ram-scene'));
+el('show-cpu').addEventListener('click', () => setShowing('cpu'));
+el('show-ram').addEventListener('click', () => setShowing('ram'));
+el('ram-write').addEventListener('click', () => {
+  ramInputs.write = !ramInputs.write;
+  sendRamInputs();
+});
+el('ram-clock').addEventListener('click', () => send({ type: 'ram-clock' }));
 
 // A link can choose the program: ?program=bounce
 const wantedProgram = link.get('program');

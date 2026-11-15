@@ -26,6 +26,20 @@ export const FLOORPLAN: Hints = {
       { row: ['alu', 'agu'] },
     ],
   },
+  // The memory made of gates: the address decoder on the left, the eight
+  // words in two rows of four in the middle, the read multiplexer on the right.
+  ram: {
+    row: [
+      'decode',
+      {
+        column: [
+          { row: ['word0', 'word1', 'word2', 'word3'] },
+          { row: ['word4', 'word5', 'word6', 'word7'] },
+        ],
+      },
+      'read',
+    ],
+  },
   // The eight registers in two rows, between what chooses one to write
   // (above) and the three ports that read them (below).
   'cpu/regs': {

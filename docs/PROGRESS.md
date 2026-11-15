@@ -48,7 +48,16 @@ Chosen first: **explain mode**. Done, on `main`:
   addresses; mended, the computer is cycle for cycle the original), a page
   check (13 in all).
 
-Next for M5: the RAM made of gates promised by ADR 0002; guided lessons.
+- **The memory made of gates** promised by ADR 0002 (`machine::exhibit`):
+  8 words of 4 bits, a flip-flop per bit, with an address decoder, a
+  write enable per word and a read multiplexer; only `nand` and `dff`, a
+  netlist of its own beside the CPU. Tested against a plain-Rust reference
+  (every value in every word; proptest on random reads and writes). On the
+  page, **cpu | ram** switches the scene; a panel sets the address and the
+  bits, turns writing on and gives a clock edge, and every word shows its
+  value on its block (`docs/media/m5-ram-of-gates.png`, `?view=ram`).
+
+Next for M5: guided lessons.
 
 ## M4 — where it stands (2026-11-15)
 

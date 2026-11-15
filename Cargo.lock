@@ -425,6 +425,7 @@ dependencies = [
  "silicon-isa",
  "silicon-machine",
  "silicon-programs",
+ "silicon-sim-gate",
  "wasm-bindgen",
 ]
 
