@@ -1,7 +1,7 @@
 // A real browser for the page checks, with nothing to install: the Chrome
 // (or Chromium, or Edge) already on the machine, run without a window and
-// driven through its DevTools protocol over a WebSocket, both of which Node
-// has built in.
+// driven through its DevTools protocol over a WebSocket, both of which Node 22
+// and later have built in.
 //
 // Set CHROME to the browser's path if it is not found by itself.
 import { spawn } from 'node:child_process';
@@ -61,7 +61,7 @@ export function serve(root) {
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
 /** Start the browser. `close()` stops it and removes its temporary profile. */
-export async function launch() {
+export async function launch({ gpu = false } = {}) {
   const binary = CANDIDATES.find((path) => path && existsSync(path));
   if (!binary) throw new Error('no Chrome found; set CHROME to the path of a Chromium-based browser');
   const profile = mkdtempSync(join(tmpdir(), 'silicon-check-'));
@@ -75,8 +75,9 @@ export async function launch() {
       '--no-default-browser-check',
       '--hide-scrollbars',
       '--mute-audio',
-      // WebGL without a graphics card (a CI runner): draw in software.
-      '--enable-unsafe-swiftshader',
+      // WebGL without a graphics card (a CI runner): draw in software,
+      // unless the graphics card is asked for.
+      ...(gpu ? ['--enable-gpu', '--use-angle=default'] : ['--enable-unsafe-swiftshader']),
       'about:blank',
     ],
     { stdio: 'ignore' },
