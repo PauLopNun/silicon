@@ -14,7 +14,9 @@
         font: 13px/1.45 ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
       body { display: grid; grid-template-columns: minmax(300px, 420px) 1fr; }
       #side { background: var(--panel); border-right: 1px solid var(--line); padding: 16px;
-        display: flex; flex-direction: column; gap: 14px; overflow-y: auto; }
+        display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+      /* When the panel is taller than the window it scrolls; nothing in it is squeezed. */
+      #side > * { flex-shrink: 0; }
       header { display: flex; align-items: center; gap: 12px; }
       h1 { font-size: 14px; letter-spacing: .3em; margin: 0; font-weight: 600; }
       #engine { margin-left: auto; padding: 2px 10px; border: 1px solid var(--hot); color: var(--hot);
@@ -23,7 +25,19 @@
       #engine[data-engine="fast"] { border-color: var(--dim); color: var(--ink); }
       #screen { width: 100%; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block;
         border: 1px solid var(--line); border-radius: 4px; background: #000; }
+      #programs button { min-width: 0; padding: 5px 11px; }
       #meters { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+      #keys { display: flex; justify-content: space-between; align-items: flex-end; }
+      #keys button { min-width: 0; width: 44px; height: 44px; padding: 0; font-size: 16px; line-height: 1;
+        touch-action: none; user-select: none; -webkit-user-select: none; }
+      #pad { display: flex; gap: 4px; }
+      #actions { display: flex; gap: 8px; }
+      #actions button { border-radius: 50%; }
+      /* The key of the keyboard that does the same. */
+      #actions small { display: block; margin-top: 2px; font-size: 9px; color: var(--dim); }
+      #console { margin: 0; max-height: 9em; overflow-y: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+        font: inherit; color: var(--hot); background: #000; border: 1px solid var(--line); border-radius: 4px;
+        padding: 6px 8px; }
       #speed { color: var(--hot); }
       #registers { margin: 0; white-space: pre-wrap; color: var(--ink); font: inherit; }
       .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
@@ -51,6 +65,14 @@
       @media (max-width: 760px) {
         body { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
         #side { border-right: 0; border-bottom: 1px solid var(--line); }
+        /* Keys for thumbs: larger, and the arrows in a cross. */
+        #keys button { width: 52px; height: 52px; }
+        #pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px);
+          grid-template-areas: ". up ." "left down right"; }
+        #pad [data-key="ArrowUp"] { grid-area: up; }
+        #pad [data-key="ArrowLeft"] { grid-area: left; }
+        #pad [data-key="ArrowDown"] { grid-area: down; }
+        #pad [data-key="ArrowRight"] { grid-area: right; }
       }
     </style>
   </head>
@@ -60,7 +82,22 @@
         <h1>SILICON</h1>
         <button id="engine" title="Engine running the CPU. Click to switch.">…</button>
       </header>
+      <div class="row" id="programs" role="group" aria-label="Program"></div>
       <canvas id="screen" aria-label="The computer's screen"></canvas>
+      <p id="about"></p>
+      <div id="keys" role="group" aria-label="The computer's keys">
+        <div id="pad">
+          <button data-key="ArrowLeft" aria-pressed="false" aria-label="left" title="The computer's left key (← on the keyboard)">←</button>
+          <button data-key="ArrowUp" aria-pressed="false" aria-label="up" title="The computer's up key (↑ on the keyboard)">↑</button>
+          <button data-key="ArrowDown" aria-pressed="false" aria-label="down" title="The computer's down key (↓ on the keyboard)">↓</button>
+          <button data-key="ArrowRight" aria-pressed="false" aria-label="right" title="The computer's right key (→ on the keyboard)">→</button>
+        </div>
+        <div id="actions">
+          <button data-key="KeyX" aria-pressed="false" aria-label="B" title="The computer's B key (X on the keyboard)">B<small>x</small></button>
+          <button data-key="KeyZ" aria-pressed="false" aria-label="A" title="The computer's A key (Z on the keyboard)">A<small>z</small></button>
+        </div>
+      </div>
+      <pre id="console" aria-label="What the program has written on the console" hidden></pre>
       <div id="meters">
         <span id="speed" title="Simulated clock cycles per real second">…</span>
         <span id="fps" title="Frames the program finishes per real second"></span>
@@ -85,11 +122,10 @@
           <option value="10">10 Hz</option>
           <option value="max">unlimited</option>
         </select>
-        <button id="key-left" aria-pressed="false" title="The computer's left key (also ← on the keyboard)">← key</button>
       </div>
       <p>
-        The program draws scrolling stripes and reads the keys: hold ← to reverse them. On the gate
-        engine every gate on the right is computed for every clock cycle, so everything runs slower.
+        On the gate engine every gate on the right is computed for every clock cycle, so everything
+        runs slower.
       </p>
       <p id="status" role="status">starting simulation…</p>
     </section>

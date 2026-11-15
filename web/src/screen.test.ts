@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest';
-import { AMBER, decodeFramebuffer, FRAMEBUFFER_BYTES, keysRegister, SCREEN_HEIGHT, SCREEN_WIDTH } from './screen';
+import {
+  AMBER,
+  controlUsesKey,
+  decodeFramebuffer,
+  FRAMEBUFFER_BYTES,
+  KEY_BITS,
+  keysRegister,
+  SCREEN_HEIGHT,
+  SCREEN_WIDTH,
+} from './screen';
 
 const PIXEL_BYTES = SCREEN_WIDTH * SCREEN_HEIGHT * 4;
 
@@ -39,5 +48,23 @@ describe('keysRegister', () => {
     expect(keysRegister(['ArrowLeft'])).toBe(0b0000_0100);
     expect(keysRegister(['ArrowUp', 'ArrowRight', 'KeyZ'])).toBe(0b0001_1001);
     expect(keysRegister(['KeyQ', 'Enter'])).toBe(0b0100_0000);
+  });
+});
+
+describe('keys and the controls of the page', () => {
+  it('leaves to a focused control the keys it uses itself', () => {
+    expect(controlUsesKey('SELECT', 'ArrowDown')).toBe(true);
+    expect(controlUsesKey('select', 'Enter')).toBe(true);
+    expect(controlUsesKey('BUTTON', 'Enter')).toBe(true);
+    expect(controlUsesKey('INPUT', 'KeyZ')).toBe(true);
+  });
+
+  it('gives the computer everything else', () => {
+    expect(controlUsesKey('SELECT', 'KeyZ')).toBe(false);
+    expect(controlUsesKey('BUTTON', 'ArrowUp')).toBe(false);
+    expect(controlUsesKey('BODY', 'Enter')).toBe(false);
+    expect(controlUsesKey('CANVAS', 'ArrowLeft')).toBe(false);
+    // With nothing but the page focused, every key of the computer reaches it.
+    for (const code of Object.keys(KEY_BITS)) expect(controlUsesKey('BODY', code)).toBe(false);
   });
 });

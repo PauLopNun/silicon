@@ -63,8 +63,8 @@ other than `#include`, floating point.
 - C code cannot be pasted in unchanged; arithmetic that relies on promotion
   needs casts. `docs/LANGUAGE.md` §9 lists every difference in one table.
 - The compiler is four small passes (`lex`, `parse`, `sema`, `gen`, about
-  4,500 lines with their tests) and has no optimiser. Its correctness is checked by
-  comparing compiled programs with a reference in plain Rust
+  5,000 lines with their unit tests) and has no optimiser. Its correctness
+  is checked by comparing compiled programs with a reference in plain Rust
   (`crates/cc/tests/random.rs`) rather than by reading the output.
 - The order of evaluation of two operands is not fixed, as in C; unlike C,
   everything else is.

@@ -4,9 +4,13 @@
  * It runs the computer's clock in short slices so that commands are handled
  * promptly, and ships the state to the page as a few small buffers at most
  * once per display frame.
+ *
+ * The programs arrive as source text inside the WASM core and are assembled
+ * or compiled there when one is chosen.
  */
-import init, { Machine, version } from './wasm-pkg/silicon_wasm.js';
+import init, { Machine, program_list, version } from './wasm-pkg/silicon_wasm.js';
 import { chunkSize, Pacer, RateMeter } from './clock';
+import { parsePrograms } from './programs';
 import type { EngineKind, FromWorker, ToWorker } from './protocol';
 import { commandQueue } from './queue';
 
@@ -27,7 +31,14 @@ self.onmessage = (e: MessageEvent<ToWorker>) => commands.push(e.data);
 
 async function main(): Promise<void> {
   const wasm = await init();
-  const machine = Machine.demo();
+  const programs = parsePrograms(program_list());
+  // A computer with nothing in ROM yet. (Memory full of zeroes is a `hlt`
+  // at address 0: it would stop at once.)
+  const machine = new Machine(new Uint8Array(0));
+  /** The program in ROM; none until the first is loaded, below. */
+  let program = '';
+  /** Times the computer has been started; see `FrameState.boot`. */
+  let boot = 0;
 
   let running = true;
   let dirty = true;
@@ -45,9 +56,12 @@ async function main(): Promise<void> {
     const framebuffer = copy(machine.framebuffer_ptr(), machine.framebuffer_len());
     const wires = copy(machine.wires_ptr(), machine.wires_len());
     const arch = machine.arch_state();
+    const written = machine.take_console();
     post(
       {
         type: 'frame',
+        program,
+        boot,
         engine: machine.engine() as EngineKind,
         running,
         halted: machine.halted(),
@@ -56,8 +70,9 @@ async function main(): Promise<void> {
         framebuffer,
         wires,
         arch,
+        console: written,
       },
-      [framebuffer.buffer, wires.buffer, arch.buffer],
+      [framebuffer.buffer, wires.buffer, arch.buffer, written.buffer],
     );
     dirty = false;
     lastPublish = performance.now();
@@ -67,11 +82,26 @@ async function main(): Promise<void> {
     type: 'ready',
     version: version(),
     engine: machine.engine() as EngineKind,
+    programs,
     gates: machine.gate_table(),
     moduleParents: machine.module_parents(),
     moduleNames: machine.module_names().split('\n'),
     wireCount: machine.wires_len(),
   });
+
+  /** Build a program from its source and start it from power-on. */
+  const load = (name: string) => {
+    try {
+      machine.load(name);
+    } catch (err) {
+      // The computer keeps the program it had.
+      post({ type: 'error', message: String(err) });
+      return;
+    }
+    program = name;
+    boot += 1;
+    pacer.clear();
+  };
 
   commands.start((command) => {
     switch (command.type) {
@@ -97,11 +127,19 @@ async function main(): Promise<void> {
         break;
       case 'reset':
         machine.reset();
+        boot += 1;
         pacer.clear();
+        break;
+      case 'program':
+        if (programs.some((p) => p.name === command.name)) load(command.name);
         break;
     }
     dirty = true;
   });
+  // Unless a command that was already waiting chose one, start with the
+  // first program of the list.
+  const first = programs[0];
+  if (program === '' && first) load(first.name);
 
   // Yielding through a message channel lets queued commands run between
   // slices without the minimum delay of setTimeout.

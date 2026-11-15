@@ -173,19 +173,39 @@ fn blocked(maze: &[u8], x: u16, y: u16) -> bool {
         .any(|(x, y)| maze[cell_at(x, y) as usize] != 0)
 }
 
-/// The screen: the view, with the map over its top left corner.
-fn screen(maze: &[u8], player: Player) -> Vec<u8> {
-    let mut screen = paint(&model(maze, player.view()));
+/// The map as the screen shows it, a pixel to a cell: 16 rows of 4 bytes.
+/// Walls are the dimmest shade, the way out the next, and the cell the
+/// player is in the brightest.
+fn chart(maze: &[u8], player_cell: u8) -> Vec<u8> {
+    let mut bytes = vec![0u8; 64];
     for cell in 0..=255u8 {
         let shade = match cell {
-            _ if cell == player.cell() => 3,
+            _ if cell == player_cell => 3,
             EXIT => 2,
             _ if maze[cell as usize] != 0 => 1,
             _ => 0,
         };
-        let (x, y) = ((cell & 15) as usize, (cell >> 4) as usize);
-        let byte = &mut screen[y * map::ROW_BYTES + x / 4];
-        *byte = *byte & !(3 << (2 * (x % 4))) | shade << (2 * (x % 4));
+        // Four cells to a byte, the first in its lowest bits.
+        bytes[cell as usize / 4] |= shade << (2 * (cell % 4));
+    }
+    bytes
+}
+
+/// The part of the screen the map is in: the first four bytes of each of
+/// the first sixteen rows.
+fn corner(screen: &[u8]) -> Vec<u8> {
+    screen
+        .chunks(map::ROW_BYTES)
+        .take(16)
+        .flat_map(|row| row[..4].to_vec())
+        .collect()
+}
+
+/// The screen: the view, with the map in its top left corner.
+fn screen(maze: &[u8], player: Player) -> Vec<u8> {
+    let mut screen = paint(&model(maze, player.view()));
+    for (i, byte) in chart(maze, player.cell()).into_iter().enumerate() {
+        screen[i / 4 * map::ROW_BYTES + i % 4] = byte;
     }
     screen
 }
@@ -314,14 +334,35 @@ fn the_game_digs_the_maze_of_the_reference() {
             0x0d80,
         );
         // The shutter's eight frames, and the first of the new level.
-        for _ in 0..8 {
-            game.frame(0);
+        let mut covered = Vec::new();
+        for step in 0..8 {
+            let cycles = game.frame(0);
             assert_eq!(game.byte("_level"), level - 1);
+            // From one step to the next is about as long as a frame of the
+            // game, so the shutter can be seen closing. (The first comes
+            // at once.)
+            assert!(
+                step == 0 || (70_000..110_000).contains(&cycles),
+                "step {step}: {cycles} cycles"
+            );
+            // It closes four rows from each side at a time: after this step
+            // that many rows at the top and at the bottom are bright.
+            let closed = 4 * (step + 1) * map::ROW_BYTES;
+            let screen = game.machine.board().framebuffer();
+            let bars = screen[..closed]
+                .iter()
+                .chain(&screen[map::FB_SIZE - closed..]);
+            assert!(bars.clone().all(|&b| b == 0xff), "step {step}");
+            covered.push(closed);
         }
+        // Until nothing of the picture is left.
+        assert_eq!(covered[7] * 2, map::FB_SIZE);
         game.frame(0);
         assert_eq!(game.byte("_level"), level);
         assert_eq!(game.maze(), dig(level), "level {level}");
         assert_eq!(game.player(), Player::at_start(&dig(level)));
+        // Nothing of the shutter is left on the first picture of the level.
+        assert!(game.machine.board().framebuffer() == screen(&dig(level), game.player()));
     }
     assert_eq!(
         game.console(),
@@ -382,6 +423,72 @@ fn the_player_walks_as_the_reference_says_and_the_screen_shows_it() {
     assert!(moved > 150, "moved in {moved} frames");
     assert!(stopped > 60, "held by a wall in {stopped} frames");
     assert_ne!(player.cell(), START);
+}
+
+/// The page shows the screen memory as it is at that moment, in the middle
+/// of a frame as often as at its end (the computer has no way to wait for
+/// the display). So what is on the screen must be right all the time, not
+/// only when a frame is declared finished.
+///
+/// (The game first drew the map over the finished view, and the renderer
+/// painted over it again a moment later: in the browser the map was missing
+/// most of the time. Nothing here noticed, because every test looked at the
+/// screen at the end of a frame.)
+#[test]
+fn the_picture_does_not_flicker() {
+    let mut game = Game::new(EngineKind::Fast);
+    let maze = dig(1);
+    game.frame(0);
+    game.frame(0);
+
+    // Standing still, no byte of the screen changes, at any moment of the
+    // frames that go on being drawn.
+    let still = game.machine.board().framebuffer().to_vec();
+    let target = game.machine.board().frames() + 3;
+    while game.machine.board().frames() < target {
+        game.machine.run(97);
+        assert!(
+            game.machine.board().framebuffer() == still,
+            "the screen changed while nothing moved, at cycle {}:\n{}",
+            game.machine.board().cycles(),
+            picture(game.machine.board().framebuffer())
+        );
+    }
+
+    // Walking, the view is redrawn in place, but the map is there all the
+    // time, with the player in the cell they were in or the one they are
+    // in now (or, for an instant, both: never neither).
+    let mut player = game.player();
+    let (mut samples, mut crossings) = (0, 0);
+    for (i, keys) in script().into_iter().enumerate().take(170) {
+        let before = player;
+        player.frame(keys, &maze);
+        let (old, new) = (chart(&maze, before.cell()), chart(&maze, player.cell()));
+        let both: Vec<u8> = old.iter().zip(&new).map(|(a, b)| a | b).collect();
+        game.machine.board_mut().set_keys(keys);
+        let target = game.machine.board().frames() + 1;
+        while game.machine.board().frames() < target {
+            // One cycle at a time, so as to stop exactly where the frame
+            // ends and the keys of the next one are read; a look at the
+            // screen every so many.
+            game.machine.run(1);
+            if !game.machine.board().cycles().is_multiple_of(193) {
+                continue;
+            }
+            let now = corner(game.machine.board().framebuffer());
+            assert!(
+                now == old || now == new || now == both,
+                "frame {i}: the map is not whole at cycle {}:\n{}",
+                game.machine.board().cycles(),
+                picture(game.machine.board().framebuffer())
+            );
+            samples += 1;
+        }
+        assert_eq!(game.player(), player, "frame {i}");
+        crossings += (before.cell() != player.cell()) as u32;
+    }
+    assert!(samples > 50_000, "looked {samples} times");
+    assert!(crossings >= 3, "the player changed cell {crossings} times");
 }
 
 /// One computer stays on the fast engine; its twin is handed to the gates

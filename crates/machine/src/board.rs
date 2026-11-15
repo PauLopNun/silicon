@@ -120,6 +120,20 @@ impl Board {
         })
     }
 
+    /// Put another program in ROM and power-cycle. The keys being held are
+    /// kept. If the program does not fit, nothing changes.
+    pub fn load(&mut self, program: &[u8]) -> Result<(), RomTooLarge> {
+        if program.len() > map::ROM_SIZE {
+            return Err(RomTooLarge {
+                bytes: program.len(),
+            });
+        }
+        self.mem[..map::ROM_SIZE].fill(0);
+        self.mem[..program.len()].copy_from_slice(program);
+        self.reset();
+        Ok(())
+    }
+
     /// Power-cycle: RAM, framebuffer and device state back to zero. The ROM
     /// and the keys being held are kept.
     pub fn reset(&mut self) {

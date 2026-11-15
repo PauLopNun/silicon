@@ -44,5 +44,9 @@ Rust and pnpm are installed per-user; if they are not found, add
 - TypeScript is strict; the main thread never imports the WASM package, only
   the worker does. All worker messages are typed in `web/src/protocol.ts`.
 - User-facing code and docs favour clarity; hot paths may be clever but must be commented.
+- Programs live as source in `programs/` (assembly, or the C-like language of
+  `docs/LANGUAGE.md`) and each is tested against its rules written in plain
+  Rust. The screen is on view all the time (ADR 0013): programs draw in
+  place, and tests of anything that moves also look between frames.
 - Commit messages: imperative summary line, body says why. One milestone ends
   with tests green, `docs/PROGRESS.md` updated, and a commit.

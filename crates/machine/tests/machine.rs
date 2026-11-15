@@ -194,3 +194,49 @@ fn the_gate_cpu_inside_a_machine_is_inspectable() {
         gate.sim().netlist().wire_count as usize
     );
 }
+
+/// Giving the computer another program is the same as building a new
+/// computer around it: nothing of the old one is left behind, on either
+/// engine. The engine choice and the keys held stay.
+#[test]
+fn loading_a_program_leaves_nothing_of_the_one_before() {
+    let second = assemble(&[
+        LdAAbs(map::KEYS),
+        StAbsA(map::OUT),
+        StAbsA(map::RAM_START),
+        StAbsA(map::FRAME),
+        Hlt,
+    ]);
+    for kind in [EngineKind::Fast, EngineKind::Gate] {
+        let mut machine = Machine::new(&demo_program()).unwrap();
+        machine.set_engine(kind);
+        machine.board_mut().set_keys(key::A | key::UP);
+        // Stop in the middle of an instruction, with things on the screen,
+        // on the console and on the stack.
+        machine.run(150);
+        assert!(!machine.halted());
+        machine.load(&second).unwrap();
+
+        let mut fresh = Machine::new(&second).unwrap();
+        fresh.set_engine(kind);
+        fresh.board_mut().set_keys(key::A | key::UP);
+        assert_eq!(machine.engine(), kind);
+        for cycle in 0..40 {
+            assert_eq!(machine.state(), fresh.state(), "{kind:?}, cycle {cycle}");
+            machine.run(1);
+            fresh.run(1);
+        }
+        assert!(machine.halted());
+        assert!(machine.board().rom() == fresh.board().rom());
+        assert!(machine.board().ram() == fresh.board().ram());
+        assert!(machine.board().framebuffer() == fresh.board().framebuffer());
+        assert_eq!(machine.board().console(), [key::A | key::UP]);
+        assert_eq!(machine.board().frames(), 1);
+
+        // A program that does not fit changes nothing.
+        let before = machine.state();
+        assert!(machine.load(&vec![0; map::ROM_SIZE + 1]).is_err());
+        assert_eq!(machine.state(), before);
+        assert!(machine.board().rom() == fresh.board().rom());
+    }
+}

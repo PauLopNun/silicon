@@ -3,6 +3,7 @@
  * simulation worker. This file is the single definition of that contract;
  * see docs/ARCHITECTURE.md §5.
  */
+import type { ProgramInfo } from './programs';
 
 /** Which engine is running the CPU. */
 export type EngineKind = 'gate' | 'fast';
@@ -30,11 +31,24 @@ export type ToWorker =
   | { type: 'clock'; hz: number | null }
   /** Keys held down, as the bits of the machine's KEYS register. */
   | { type: 'keys'; keys: number }
-  | { type: 'reset' };
+  | { type: 'reset' }
+  /**
+   * Put this program in ROM and start it from power-on. A name that is not in
+   * the list of programs is ignored: the computer keeps the one it has.
+   */
+  | { type: 'program'; name: string };
 
 /** Everything the page shows, sent at most once per display frame. */
 export interface FrameState {
   type: 'frame';
+  /** Name of the program in ROM. */
+  program: string;
+  /**
+   * How many times the computer has been started: once at first, and once
+   * more for every reset and every program loaded. When it changes, what was
+   * shown of the run before (the console) is stale.
+   */
+  boot: number;
   engine: EngineKind;
   running: boolean;
   halted: boolean;
@@ -48,10 +62,12 @@ export interface FrameState {
   wires: Uint8Array;
   /** CPU registers, packed; see {@link decodeArch}. */
   arch: Uint8Array;
+  /** Bytes the program wrote on the console since the frame message before this one. */
+  console: Uint8Array;
 }
 
 export type FromWorker =
-  | ({ type: 'ready'; version: string; engine: EngineKind } & NetlistInfo)
+  | ({ type: 'ready'; version: string; engine: EngineKind; programs: ProgramInfo[] } & NetlistInfo)
   | FrameState
   | { type: 'error'; message: string };
 

@@ -423,6 +423,7 @@ version = "0.0.1"
 dependencies = [
  "silicon-hdl",
  "silicon-machine",
+ "silicon-programs",
  "wasm-bindgen",
 ]
 

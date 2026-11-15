@@ -286,6 +286,18 @@ void main() {
 }
 ```
 
+**The screen is on view all the time**, in the middle of a frame as much as
+at its end: there is nothing to wait for and no second screen to draw on
+(ADR 0013). A picture that is rubbed out and drawn again is seen to blink.
+So:
+
+- write each byte of the screen once, with what it is finally to hold;
+- put a thing in its new place before taking it from the old one;
+- do not draw over a finished picture what the next frame will paint over.
+
+`programs/bounce.c` moves its balls this way, and `programs/maze3d/main.c`
+keeps its map in a corner that the renderer is told to leave alone.
+
 ## 11. Building
 
 ```text

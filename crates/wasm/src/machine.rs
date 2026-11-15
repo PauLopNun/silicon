@@ -27,6 +27,24 @@ impl Machine {
             core: Core::new(program)?,
         })
     }
+
+    /// [`Machine::load`] without the JavaScript error type. The error is
+    /// what the toolchain reported, one line per problem.
+    pub fn load_named(&mut self, name: &str) -> Result<(), String> {
+        let rom = rom_of(name)?;
+        self.core.load(&rom).map_err(|e| e.to_string())
+    }
+}
+
+/// Build one of the programs of `programs/` from its source.
+fn rom_of(name: &str) -> Result<Vec<u8>, String> {
+    match silicon_programs::build(name) {
+        Ok(assembly) => Ok(assembly.rom),
+        Err(errors) => {
+            let lines: Vec<String> = errors.iter().map(|e| e.to_string()).collect();
+            Err(lines.join("\n"))
+        }
+    }
 }
 
 #[wasm_bindgen]
@@ -40,6 +58,21 @@ impl Machine {
     /// A computer running the built-in demo program (scrolling stripes).
     pub fn demo() -> Machine {
         Machine::with_program(&demo::stripes()).expect("the demo fits in ROM")
+    }
+
+    /// A computer running one of the programs of [`crate::program_list`],
+    /// built from its source here and now. Throws if there is no such
+    /// program.
+    pub fn running(name: &str) -> Result<Machine, JsError> {
+        let rom = rom_of(name).map_err(|e| JsError::new(&e))?;
+        Machine::with_program(&rom).map_err(|e| JsError::new(&e.to_string()))
+    }
+
+    /// Give the computer another program and start it from power-on. The
+    /// engine choice and held keys stay. Throws, changing nothing, if there
+    /// is no such program.
+    pub fn load(&mut self, name: &str) -> Result<(), JsError> {
+        self.load_named(name).map_err(|e| JsError::new(&e))
     }
 
     /// Back to power-on. The program, the engine choice and held keys stay.
@@ -174,6 +207,47 @@ mod tests {
         assert!(m.core.board().framebuffer() == stripes_frame(1));
         assert_eq!(m.framebuffer_len(), 2048);
         assert!(!m.halted());
+    }
+
+    #[test]
+    fn every_program_of_the_list_loads_and_runs() {
+        let mut m = Machine::demo();
+        m.use_gate_engine(true);
+        m.set_keys(0x10);
+        for line in crate::program_list().lines() {
+            let name = line.split('\t').next().unwrap();
+            m.load_named(name).unwrap();
+            assert_eq!((m.cycles(), m.frames()), (0.0, 0.0), "{name}");
+            m.run(2_000);
+            assert_eq!(m.cycles(), 2_000.0, "{name}");
+        }
+        // The engine and the keys are the computer's, not the program's.
+        assert_eq!(m.engine(), "gate");
+        assert_eq!(m.core.board().keys(), 0x10);
+    }
+
+    #[test]
+    fn loading_starts_the_program_from_power_on() {
+        let mut m = Machine::demo();
+        m.run(100_000);
+        m.load_named("hello").unwrap();
+        m.run(1_000);
+        assert!(m.halted());
+        assert_eq!(m.take_console(), b"Hello from Silicon!\n");
+        assert_eq!(m.frames(), 0.0);
+        assert!(m.core.board().framebuffer().iter().all(|&b| b == 0));
+    }
+
+    #[test]
+    fn an_unknown_program_is_refused_and_nothing_changes() {
+        let mut m = Machine::demo();
+        m.run(1_000);
+        let error = m.load_named("nothing").unwrap_err();
+        assert_eq!(
+            error,
+            "nothing:1:1: error: there is no program called `nothing`"
+        );
+        assert_eq!(m.cycles(), 1_000.0);
     }
 
     #[test]

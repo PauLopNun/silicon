@@ -7,115 +7,191 @@ Read this and `CLAUDE.md` at the start of every session.
 | Milestone | State |
 |---|---|
 | M0 — Plan and scaffold | **done** (2026-11-12) |
-| M1 — ISA and hardware design | **done** (2026-11-13), branch `m1-isa-and-cpu` |
-| M2 — Simulation engines | **done** (2026-11-13), branch `m2-machine` (on top of M1) |
-| M3 — Toolchain and programs | next |
-| M4 — 3D visualization | — |
+| M1 — ISA and hardware design | **done** (2026-11-13) |
+| M2 — Simulation engines | **done** (2026-11-13) |
+| M3 — Toolchain and programs | **done** (2026-11-14) |
+| M4 — 3D visualization | next |
 | M5 — Learning tools | — |
 | M6 — Polish and launch | — |
 
-Neither branch is merged to `main` yet, so CI (which runs on pull requests and
-on pushes to `main`) has not run on any of this. Everything below was verified
-locally on Windows.
+Everything is on `main`. CI runs on pushes to `main`; its last run (the
+commit before M3 was closed) failed at `cargo fmt --check` on the compiler's
+files, which is fixed in the commits that close M3. Those were verified
+locally on Windows and **have not been pushed**, so CI has not seen them.
 
-## M2 — what was done
+## M3 — what was done
 
-- **The whole computer** (`crates/machine`): `Board` implements the memory map
-  of `docs/ISA.md` §4 (ROM at 0, 128×64 framebuffer, device page, RAM on top)
-  with keys, a frame marker, a cycle-counting timer and a console. `Machine`
-  is a board plus both engines; `set_engine` hands the CPU over at any cycle.
-- **Speed measured in WebAssembly** (`pnpm bench`, Node 22 / V8), which is
-  what the budgets are about:
+- **Assembler** (`crates/asm`): the syntax of `docs/ISA.md` to a ROM image,
+  every byte through `Insn::encode`. Labels with locals, constants,
+  expressions, data directives, includes, a listing and a map from addresses
+  to source lines; conditional jumps of any distance.
+- **Compiler** (`crates/cc`, `docs/LANGUAGE.md`): a language that looks like
+  C. Four integer types, pointers, arrays, functions, C's operators and
+  statements, `#include`, `asm { … }`. No integer promotion and nothing
+  undefined (ADR 0012). Code generation is one accumulator and frames
+  reached from `sp` (ADR 0011); no optimiser.
+- **Programs** (`programs/`, `crates/programs`), built from source on
+  demand, in the browser too:
 
-  | Engine | Measured | Budget |
-  |---|---|---|
-  | fast | 279 M cycles/s | 5 M |
-  | gate (scalar evaluator) | 250 k cycles/s | 50 k |
+  | Program | In | ROM | What |
+  |---|---|---|---|
+  | `maze3d` | C + assembly | 4,799 B | the game: a maze dug anew for each level, walked through in first person, with a map and a way out |
+  | `bounce` | C | 602 B | five balls, paced by the timer |
+  | `primes` | C | 359 B | a sieve, printed on the console |
+  | `stripes`, `hello` | assembly | 61 B, 34 B | the M2 demo; a line on the console |
 
-  The gate engine clears its budget five times over without the planned
-  bit-parallel rewrite, so that rewrite is deferred (ADR 0009).
-- **The real CPU in the browser** (`crates/wasm`, `web/`): the worker runs the
-  machine, paced against real time at a nominal 4 MHz clock; the page shows
-  the computer's screen, the registers, the real speed, and every gate of the
-  CPU lit by the wire it drives. Engines can be switched while the program
-  runs; pause, single-cycle step, reset and clock rate are controls.
-- **A demo program** (`machine::demo::stripes`): scrolling stripes that
-  reverse while the left key is held. Built with `silicon_isa::Program`, a
-  small label-resolving builder, because the assembler is M3.
-- The gate view already uses the M4 data path: one instanced quad per gate,
-  wire levels in a texture looked up by wire index in the shader. Only the
-  layout is provisional (a flat floorplan by block).
+- **The game** (`programs/maze3d/main.c`): the renderer measured in ADR 0010
+  stays in assembly; the maze generator, the walking with sliding along
+  walls, the map and the levels are C.
+- **The page** offers the programs, shows the console, has the computer's
+  keys on screen (they light up for the keyboard too), and a link can name a
+  program and an engine: `?program=bounce&engine=gate`. Which program is
+  running comes from the simulation, like everything else shown.
 
-### Verification
+### How it was verified
 
-- `cargo test --workspace`: 131 tests. `cargo fmt --check`, `cargo clippy -D
-  warnings` clean.
-- `pnpm typecheck`, `pnpm test` (36 Vitest tests), `pnpm build`: pass.
-- Lockstep now compares over 5 M cycles (4.5 M-cycle soak plus the rest), in
-  about 10 s. Random ROMs also run on the full memory map with keys changing
-  mid-run, and a machine that switches engines at random moments is compared
-  with one that never does.
-- The demo's framebuffer is checked byte for byte against a picture computed
-  in plain Rust, on both engines, with and without a key held.
-- The production build was loaded in headless Chrome and driven through the
-  DevTools protocol: page reaches ready, no console errors or warnings; fast
-  engine shows 4.00 MHz and 61 frames/s (4 MHz ÷ 65,536 cycles per frame =
-  61.0); gate engine shows ~269 kHz and 4.0 frames/s (269 k ÷ 65,536 = 4.1);
-  Step while paused advances the cycle counter by exactly one. Screenshot:
-  `docs/media/m2-cpu-live.png`.
+- `cargo test --workspace`: **274 tests** (131 at the end of M2).
+  `cargo fmt --check` and `cargo clippy -D warnings` clean. `pnpm typecheck`,
+  `pnpm test` (44 Vitest tests), `pnpm build`, `pnpm bench`: pass.
+- **The compiler against a reference** in plain Rust
+  (`crates/cc/tests/random.rs`): random programs (all types and operators,
+  calls, pointers, loops) must print what the reference computes. 1,500 per
+  run; 20,000 were run once without a failure. Multiplication, division and
+  shifts against Rust's for all 65,536 pairs of bytes and 20,900 16-bit
+  pairs (`arithmetic.rs`). 29 feature tests, 12 tests of error messages.
+- **Mutation check**: thirteen bugs injected one at a time into the compiler
+  and its runtime. The first round caught eight of nine; the one that got
+  through (the sign of an 8-bit quotient) is why the exhaustive arithmetic
+  test exists. With it, all thirteen are caught.
+- **The game against its rules** in plain Rust (`crates/programs/tests/game.rs`):
+  the maze of every level is the reference's and all 256 are proper mazes;
+  over a scripted walk the player and the whole screen match after every
+  frame; a player that only follows the map with the keys gets out of three
+  mazes.
+- **Both engines**: lockstep cycle by cycle on every program, 3 M cycles with
+  keys changing (`crates/programs/tests/lockstep.rs`), on top of M2's 5 M on
+  random programs. A computer handed to the gates for one frame in
+  twenty-nine of the game stays identical to one that never left the fast
+  engine.
+- **The production build in headless Chrome**, driven through the DevTools
+  protocol, 40 checks: every program runs and is what the menu says; the
+  game draws 42–45 frames/s at 4.00 MHz and 2.5 on the gate engine at
+  270 kHz; `bounce` and `stripes` 61; keys from the keyboard and from the
+  page; reset, pause, single step; links with and without a valid program;
+  a phone-sized window; no console errors or warnings. Screenshot:
+  `docs/media/m3-maze-on-gates.png`.
 
-**Not verified:** any browser other than Chrome; the page on a phone-sized
-screen; CI on Linux.
+**What the browser found that the tests had not.** The game's map and the
+balls of `bounce` flickered: both were right when a frame ended, which is
+when every test looked, and wrong for most of the time in between, which is
+when a display looks. Fixed in the programs, not hidden in the machine
+(ADR 0013), with tests that sample the screen between frames; they fail on
+the old programs. The console panel was also squeezed to nothing by the
+layout. Neither would have been found without loading the page.
+
+**Not verified:** any browser other than Chrome; a real touch screen (the
+phone layout was checked in an emulated window only); CI on Linux for these
+commits.
 
 ### Metrics
 
 | | |
 |---|---|
-| CPU | 2,603 NAND, 127 DFF, 2,740 wires, critical path 67 |
-| WASM | 144 kB raw, 56 kB gzipped (budget 400 kB gzipped) |
-| JS | 134 kB gzipped (budget 300 kB); almost all Three.js |
-| Demo program | 25 k cycles per frame, 1 frame per 65,536-cycle timer tick |
+| CPU | 2,603 NAND, 127 DFF (unchanged: ADR 0010 kept the instruction set) |
+| A frame of the game | 88,600 clock cycles walking: 45 frames/s at 4 MHz (budget 10) |
+| The same on the gate engine | 2.5–3 frames/s at 250–270 kHz |
+| The renderer alone | 81,641 – 92,058 cycles, mean 86,280 |
+| Engines in WASM (`pnpm bench`) | fast 280 M cycles/s, gate 0.26 M |
+| WASM, with the toolchain and the sources inside | 408 kB raw, 156 kB gzipped (budget 400 kB gzipped) |
+| JS | 134 kB gzipped (budget 300); almost all Three.js |
+| Building `maze3d` from source in WASM | 12 ms |
+| ROM used by the largest program | 4.8 of 32 KiB |
 
 ### Decisions
 
-- ADR 0008 — device reads are pure; device time is counted in clock cycles.
-- ADR 0009 — the bit-parallel gate engine is deferred; the scalar one stays.
-- `Bus::tick`: whoever drives the clock tells devices a cycle has passed; CPU
-  engines know nothing about device time.
-- The screen is drawn from the framebuffer bytes as they are, 4 pixels per
-  byte, least significant bits first.
+- ADR 0010 — the instruction set and the 4 MHz clock stay (measured on the
+  renderer, written first).
+- ADR 0011 — compiled code: one accumulator, frames from `sp`, arguments on
+  the stack, everything caller-saved.
+- ADR 0012 — the language looks like C and is not C.
+- ADR 0013 — the screen is on view all the time; there is no page flip and
+  programs draw in place.
+- Programs travel as source and are built where they run; nothing is
+  assembled ahead of time.
 
-### Known limitations
+### Bugs found and fixed on the way
 
-- **The raycaster inner loop has still not been cycle-counted against the
-  ISA** (carried over from M1). Do it first in M3, before the assembler
-  hardens the encoding. With the fast engine at 279 M cycles/s there is far
-  more headroom than the 5 M budget assumed, so the question has changed
-  from "can it reach 10 FPS" to "which nominal clock rate do we pick": the
-  game must also stay watchable on the gate engine, which is ~1000× slower.
+Each has a regression test.
+
+- `const` inside a function was an ordinary variable and could be assigned.
+- A function with a result could run off its end and return whatever was in
+  the accumulator; it no longer compiles.
+- `1 << 40` between untyped numbers was 0 instead of an error.
+- Assembler: a label written in full (`f.L1:`, as the compiler writes its
+  own) began a new scope, cutting a function's `asm` blocks off from each
+  other's local labels.
+- `maze3d`: the map flickered; the level-end shutter was erased by the
+  renderer as it closed. `bounce`: the balls blinked.
+- Page: arrow keys were taken from a focused list, so the clock could not be
+  chosen from the keyboard.
+
+## Known limitations
+
+- **Compiled code is naive.** Every use of a variable is a load from the
+  stack; there is no register allocation. Enough for the game's logic (3%
+  of a frame), not for inner loops, which is what `asm { … }` is for.
+- The language has no `struct`, `switch` or function pointers, and a
+  function's variables must fit in 255 bytes (ADR 0011).
+- The game is a maze and a way out: no score, no time limit, nothing that
+  moves but the player. 256 levels, then they repeat.
+- On the gate engine a level change takes about three seconds (the shutter
+  is paced by counting) and digging a maze a third of a second.
+- **The page check is still an ad-hoc script outside the repository.** It
+  has now found a class of bug the test suite could not see. It belongs in
+  the repository and in CI (Playwright, M4).
+- The page has no source or disassembly view. The toolchain already
+  produces the map from addresses to source lines (`Assembly::lines`).
 - State reaches the page by copying (ADR 0004's fallback path); the
   `SharedArrayBuffer` path is not implemented.
-- No wire-activity buffer yet (toggles between frames): the gate view shows
-  the level at the instant of each frame, which at 269 kHz is a sample, not
-  everything that happened.
-- The gate view is a flat grid. No zoom, no wires drawn, no hierarchy: M4.
+- No wire-activity buffer: the gate view shows the level at the instant of
+  each frame, which at 270 kHz is a sample, not everything that happened.
+- The gate view is a flat grid; its labels overlap on a phone. No zoom, no
+  wires drawn, no hierarchy: M4.
 - Engine switching is manual. Switching by camera distance arrives with M4.
-- The browser check was an ad-hoc script, not a test in the repository.
-  Playwright is planned for M4.
-- No disassembly on the page (the HUD shows `ir` in hex).
 
-## Next: M3
+## Next: M4
 
-1. Write the raycaster's inner loop by hand, count cycles, adjust the ISA if
-   it hurts. Decide the nominal clock rate.
-2. Assembler (`crates/asm`): labels, expressions, data directives, includes,
-   listings, precise diagnostics. Its output must match `Insn::encode`.
-3. Calling convention, then the C-like compiler (`crates/cc`).
-4. Programs in `programs/`: a few small ones, then `maze3d`. Golden
-   framebuffer tests with scripted keys on both engines.
-5. The page loads a chosen program instead of the built-in demo.
+1. Prototype the hierarchical scene and the LOD cross-fade on a synthetic
+   module tree before anything else (risk 1).
+2. Layout from the module tree: deterministic packing, hints for the top
+   levels. Camera-relative rendering.
+3. Wires as an instanced mesh; the wire-activity buffer in the worker.
+4. Engine switching by camera distance.
+5. Playwright: the checks of the ad-hoc script (loads, every program runs,
+   the screen is still while nothing is held, no console errors), in CI.
 
-## M1 — what was done
+## Earlier milestones
+
+### M2 — simulation engines (2026-11-13)
+
+- **The whole computer** (`crates/machine`): `Board` implements the memory
+  map of `docs/ISA.md` §4 with keys, a frame marker, a cycle-counting timer
+  and a console. `Machine` is a board plus both engines; `set_engine` hands
+  the CPU over at any cycle.
+- **Speed measured in WebAssembly** (`pnpm bench`): fast 279 M cycles/s
+  against a budget of 5 M; gate, with the scalar evaluator, 250 k against
+  50 k. The bit-parallel rewrite was deferred (ADR 0009).
+- **The real CPU in the browser** (`crates/wasm`, `web/`): the worker runs
+  the machine paced against real time at a nominal 4 MHz; the page shows
+  the screen, the registers, the real speed, and every gate of the CPU lit
+  by the wire it drives. Engines can be switched while the program runs.
+- The gate view uses the M4 data path: one instanced quad per gate, wire
+  levels in a texture looked up by wire index in the shader.
+- Decisions: ADR 0008 (device reads are pure; device time is clock cycles),
+  ADR 0009; `Bus::tick`; the screen is drawn from the framebuffer bytes as
+  they are.
+
+### M1 — ISA and hardware design (2026-11-13)
 
 - **ISA** (`docs/ISA.md`, `crates/isa`): 8-bit data, 16-bit addresses, eight
   registers pairing into four 16-bit ones, flags `Z C N V`. 33 instruction
@@ -134,16 +210,14 @@ screen; CI on Linux.
   specification with plain integers, sharing no code with the microcode.
 - **Lockstep harness** (`machine::lockstep`): reports the first diverging
   cycle and the instruction being executed.
-- Every hardware block is compared with a plain Rust reference (ALU over all
-  operand pairs for each microcoded operation; control unit for every opcode ×
-  step × flags). Structural tests: every flip-flop maps to a bit of
-  `ArchState`; the address bus never depends on `data_in`.
-- Mutation check: four bugs injected one at a time (two in the model, two in
-  the hardware) were each caught by lockstep and named correctly.
-- ADRs 0005 (ISA shape), 0006 (microcode table compiled to a PLA, independent
-  reference model), 0007 (reset is all zeros; ROM at 0).
+- Every hardware block is compared with a plain Rust reference. Structural
+  tests: every flip-flop maps to a bit of `ArchState`; the address bus never
+  depends on `data_in`. Mutation check: four injected bugs, each caught by
+  lockstep and named correctly.
+- ADRs 0005 (ISA shape), 0006 (microcode table compiled to a PLA,
+  independent reference model), 0007 (reset is all zeros; ROM at 0).
 
-## M0 — what was done
+### M0 — plan and scaffold (2026-11-12)
 
 - Monorepo (Cargo + pnpm workspaces), `docs/ARCHITECTURE.md`, ADRs 0001–0004,
   `CLAUDE.md`, CI workflow.
@@ -156,13 +230,16 @@ screen; CI on Linux.
    cross-fades, label legibility. Prototype with a synthetic hierarchy early,
    before polishing anything. The state path (instancing + wire texture) is
    already proven on the real CPU.
-2. **Scope of the C-like compiler** (M3). Keep the language small; maze3d may
-   use inline asm for its inner loop.
-3. **maze3d on an 8-bit CPU with no multiply.** Speed is no longer the worry
-   (see above); code size in a 32 KiB ROM and the amount of table data are.
-4. **Cross-browser WASM/worker behaviour** (Safari, Firefox). Untested.
-5. **Engine switch correctness.** Covered by the no-hidden-state test,
-   cycle-level lockstep, swap-at-every-cycle and random switching on the full
-   machine. Residual risk is in the worker's scheduling, not in the engines.
+2. **What only a browser shows.** Twice now the page has had faults that no
+   test saw (M3: flicker, a squeezed panel). Until the page check is in the
+   repository and in CI, every change to the page or to a program that draws
+   needs it run by hand.
+3. **Cross-browser WASM/worker behaviour** (Safari, Firefox). Untested.
+4. **Engine switch correctness.** Covered by the no-hidden-state test,
+   cycle-level lockstep on random programs and on every real one,
+   swap-at-every-cycle and switching mid-game. Residual risk is in the
+   worker's scheduling, not in the engines.
 
-Retired: *gate engine speed in WASM* (measured, 5× over budget).
+Retired: *gate engine speed in WASM* (M2: measured, 5× over budget); *scope
+of the C-like compiler* (M3: built, and small); *maze3d on an 8-bit CPU with
+no multiply* (M3: 45 frames/s, 4.8 KiB of ROM).

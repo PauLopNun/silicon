@@ -28,6 +28,16 @@ impl Machine {
         })
     }
 
+    /// Put another program in ROM and start it from power-on. The engine
+    /// choice and the keys being held are kept. If the program does not
+    /// fit, nothing changes.
+    pub fn load(&mut self, program: &[u8]) -> Result<(), RomTooLarge> {
+        self.board.load(program)?;
+        self.fast.reset();
+        Engine::reset(&mut self.gate);
+        Ok(())
+    }
+
     /// Back to the power-on state: CPU, RAM, framebuffer and devices. The
     /// ROM, the engine choice and the keys being held are kept.
     pub fn reset(&mut self) {

@@ -338,3 +338,44 @@ fn bounce_is_the_same_on_the_gates() {
         );
     }
 }
+
+/// The page shows the screen as it is at every moment, not only when a
+/// frame is finished, so a ball must never be off the screen, not even
+/// while it is being moved. (The program used to rub all the balls out and
+/// then draw them again, and in the browser each one was missing a quarter
+/// of the time.)
+#[test]
+fn bounce_never_blinks() {
+    let program = build("bounce");
+    let mut machine = boot(&program, EngineKind::Fast);
+    // Where the balls are after each frame.
+    let mut balls = Balls::new();
+    let mut places = vec![(balls.x, balls.y)];
+    for _ in 0..60 {
+        balls.frame(false);
+        places.push((balls.x, balls.y));
+    }
+    run_frames(&mut machine, 1, 200_000);
+    let mut samples = 0;
+    while machine.board().frames() < 59 {
+        machine.run(53);
+        // Between two frames each ball is where it was or where it will
+        // be, and all of it is there.
+        let done = machine.board().frames() as usize;
+        let board = machine.board();
+        let whole = |x: u8, y: u8| {
+            (0..9).all(|i| board.pixel((x + i % 3) as usize, (y + i / 3) as usize) != 0)
+        };
+        for n in 0..5 {
+            let (was, is) = (places[done], places[done + 1]);
+            assert!(
+                whole(was.0[n], was.1[n]) || whole(is.0[n], is.1[n]),
+                "ball {n} is not all there at cycle {}:\n{}",
+                board.cycles(),
+                common::picture(board.framebuffer())
+            );
+        }
+        samples += 1;
+    }
+    assert!(samples > 50_000, "looked {samples} times");
+}

@@ -23,15 +23,15 @@ walls and along the axes):
 
 | | Clock cycles per frame |
 |---|---|
-| cheapest frame | 81,421 |
-| mean | 86,060 |
-| dearest frame | 91,838 |
+| cheapest frame | 81,641 |
+| mean | 86,280 |
+| dearest frame | 92,058 |
 
 Where a mean frame goes:
 
 | Part | Cycles | Share | Per unit |
 |---|---|---|---|
-| writing the screen | 35,428 | 41% | 16 per byte, 2,048 bytes; the rest is noting where walls begin and end |
+| writing the screen | 35,648 | 41% | 16 per byte, 2,048 bytes; the rest is noting where walls begin and end, and asking whether a corner is to be left alone (ADR 0013) |
 | multiplying | 21,594 | 25% | 84 per 8×16-bit product, two per ray |
 | setting up a ray | 13,571 | 15% | 106 per ray |
 | distance to height | 9,646 | 11% | 75 per ray |
@@ -45,7 +45,7 @@ Where a mean frame goes:
   and does not wait for the timer.
 
 ## Why
-- At 4 MHz a frame takes 21.5 ms: 46 frames per second from the renderer
+- At 4 MHz a frame takes 21.6 ms: 46 frames per second from the renderer
   alone, against a budget of 10. There is room for the game around it, in
   compiled code that will be several times slower than this.
 - No instruction is missing in the places that cost. The two loops that

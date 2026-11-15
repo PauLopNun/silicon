@@ -1,7 +1,8 @@
 /**
- * The page: the computer's screen, its registers, and every gate of the CPU
- * lit by the wire it drives. Everything shown comes from the simulation in
- * the worker; this file only draws it.
+ * The page: the computer's screen, keys and console, its registers, and
+ * every gate of the CPU lit by the wire it drives. Everything shown comes
+ * from the simulation in the worker, down to which program is running; this
+ * file only draws it.
  *
  * The gate view is the M4 data path in miniature: one instanced quad per
  * gate, and a texture with one texel per wire that the shader looks up by
@@ -10,6 +11,7 @@
 import * as THREE from 'three';
 import { WindowRate } from './clock';
 import { flatLayout, type FlatLayout } from './layout';
+import { appendConsole, consoleText, searchFor, type ProgramInfo } from './programs';
 import {
   decodeArch,
   flagsText,
@@ -23,7 +25,15 @@ import {
   type NetlistInfo,
   type ToWorker,
 } from './protocol';
-import { AMBER, decodeFramebuffer, keysRegister, KEY_BITS, SCREEN_HEIGHT, SCREEN_WIDTH } from './screen';
+import {
+  AMBER,
+  controlUsesKey,
+  decodeFramebuffer,
+  keysRegister,
+  KEY_BITS,
+  SCREEN_HEIGHT,
+  SCREEN_WIDTH,
+} from './screen';
 
 const el = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -165,6 +175,62 @@ function frame(): void {
   requestAnimationFrame(frame);
 }
 
+// ───────────────────────────── programs ───────────────────────────────
+
+/** Lines of console output kept on the page. */
+const CONSOLE_LINES = 12;
+const consoleView = el('console');
+let programs: ProgramInfo[] = [];
+// What the page shows of the program and of the run. Both follow the
+// simulation: a button only asks, and the next frame says what happened.
+let shownProgram = '';
+let shownBoot = 0;
+
+function buildProgramButtons(list: ProgramInfo[]): void {
+  programs = list;
+  el('programs').replaceChildren(
+    ...list.map((program) => {
+      const button = document.createElement('button');
+      button.textContent = program.title;
+      button.title = program.about;
+      button.dataset.program = program.name;
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', () => send({ type: 'program', name: program.name }));
+      return button;
+    }),
+  );
+}
+
+function showProgram(name: string): void {
+  shownProgram = name;
+  for (const button of el('programs').children) {
+    button.setAttribute('aria-pressed', String((button as HTMLElement).dataset.program === name));
+  }
+  el('about').textContent = programs.find((p) => p.name === name)?.about ?? '';
+  // The address bar leads back to this program.
+  const search = searchFor(location.search, name, programs);
+  if (search === location.search) return;
+  try {
+    history.replaceState(null, '', `${location.pathname}${search}${location.hash}`);
+  } catch {
+    // Some places (a page opened from a file) do not allow it. The link is
+    // a convenience; the program runs all the same.
+  }
+}
+
+/** What the program wrote since the last frame, added to the console. */
+function showConsole(msg: FrameState): void {
+  if (msg.boot !== shownBoot) {
+    shownBoot = msg.boot;
+    consoleView.textContent = '';
+  }
+  if (msg.console.length > 0) {
+    consoleView.textContent = appendConsole(consoleView.textContent ?? '', consoleText(msg.console), CONSOLE_LINES);
+    consoleView.scrollTop = consoleView.scrollHeight;
+  }
+  consoleView.hidden = consoleView.textContent === '';
+}
+
 // ───────────────────────────── the worker ─────────────────────────────
 
 const worker = new Worker(new URL('./sim.worker.ts', import.meta.url), { type: 'module' });
@@ -180,6 +246,8 @@ function show(msg: FrameState): void {
   state = msg;
   decodeFramebuffer(msg.framebuffer, screenPixels.data, AMBER);
   screenContext.putImageData(screenPixels, 0, 0);
+  if (msg.program !== shownProgram) showProgram(msg.program);
+  showConsole(msg);
 
   if (view) {
     view.wires.set(msg.wires);
@@ -212,6 +280,7 @@ function show(msg: FrameState): void {
 worker.onmessage = (e: MessageEvent<FromWorker>) => {
   const msg = e.data;
   if (msg.type === 'ready') {
+    buildProgramButtons(msg.programs);
     view = buildGateView(msg);
     fit();
     const nands = msg.gates.filter((_, i) => i % GATE_FIELDS === 0 && msg.gates[i] === 0).length;
@@ -244,42 +313,70 @@ el<HTMLSelectElement>('clock').addEventListener('change', (e) => {
   send({ type: 'clock', hz: value === 'max' ? null : Number(value) });
 });
 
-// The computer's keys follow the keyboard.
-const held = new Set<string>();
-const sendKeys = () => send({ type: 'keys', keys: keysRegister(held) });
+// The computer's keys follow the keyboard and the keys drawn on the page.
+const typed = new Set<string>(); // held on the keyboard
+const touched = new Set<string>(); // held on the page
+const keyButtons = Array.from(document.querySelectorAll<HTMLElement>('[data-key]'));
+const sendKeys = () => {
+  const held = new Set([...typed, ...touched]);
+  send({ type: 'keys', keys: keysRegister(held) });
+  // The drawn keys light up for the keyboard too: they show the KEYS register.
+  for (const button of keyButtons) button.setAttribute('aria-pressed', String(held.has(button.dataset.key ?? '')));
+};
 window.addEventListener('keydown', (e) => {
   if (!(e.code in KEY_BITS) || e.ctrlKey || e.metaKey || e.altKey) return;
+  // A list or a button that has the focus uses some keys itself.
+  if (e.target instanceof Element && controlUsesKey(e.target.tagName, e.code)) return;
   e.preventDefault();
-  if (!held.has(e.code)) {
-    held.add(e.code);
+  if (!typed.has(e.code)) {
+    typed.add(e.code);
     sendKeys();
   }
 });
 window.addEventListener('keyup', (e) => {
-  if (held.delete(e.code)) sendKeys();
+  if (typed.delete(e.code)) sendKeys();
 });
 window.addEventListener('blur', () => {
-  if (held.size > 0) {
-    held.clear();
+  if (typed.size + touched.size > 0) {
+    typed.clear();
+    touched.clear();
     sendKeys();
   }
 });
-// On-screen key for touch devices and for people who have not found the arrows.
-const leftKey = el('key-left');
-const press = (down: boolean) => {
-  if (down) held.add('ArrowLeft');
-  else held.delete('ArrowLeft');
-  leftKey.setAttribute('aria-pressed', String(down));
-  sendKeys();
-};
-leftKey.addEventListener('pointerdown', () => press(true));
-for (const type of ['pointerup', 'pointerleave', 'pointercancel']) leftKey.addEventListener(type, () => press(false));
+for (const button of keyButtons) {
+  const code = button.dataset.key ?? '';
+  const press = (down: boolean) => {
+    if (down === touched.has(code)) return;
+    if (down) touched.add(code);
+    else touched.delete(code);
+    sendKeys();
+  };
+  button.addEventListener('pointerdown', () => press(true));
+  for (const type of ['pointerup', 'pointerleave', 'pointercancel']) button.addEventListener(type, () => press(false));
+  // A long touch is holding the key, not asking for a menu.
+  button.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+// A list keeps the arrow keys while it has the focus. One that was chosen
+// from with the mouse gives the focus back at once, so that the arrows go on
+// to the computer; one being worked with the keyboard keeps it.
+for (const select of document.querySelectorAll('select')) {
+  let byPointer = false;
+  select.addEventListener('pointerdown', () => (byPointer = true));
+  select.addEventListener('keydown', () => (byPointer = false));
+  select.addEventListener('change', () => {
+    if (byPointer) select.blur();
+  });
+}
 
 new ResizeObserver(fit).observe(gateCanvas);
 
-// A link can choose the engine: ?engine=gate
-const wanted = new URLSearchParams(location.search).get('engine');
-if (wanted === 'gate' || wanted === 'fast') setEngine(wanted);
+// A link can choose the program and the engine: ?program=bounce&engine=gate
+const link = new URLSearchParams(location.search);
+const wantedProgram = link.get('program');
+if (wantedProgram) send({ type: 'program', name: wantedProgram });
+const wantedEngine = link.get('engine');
+if (wantedEngine === 'gate' || wantedEngine === 'fast') setEngine(wantedEngine);
 
 fit();
 frame();

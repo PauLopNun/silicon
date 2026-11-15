@@ -15,6 +15,8 @@ u8 maze_map[256];           // 16 x 16 cells, row by row from the north; 0 is fl
 u16 player_x;               // in cells: the high byte is the cell, the low
 u16 player_y;               //   byte the place inside it, in 256ths
 u8 player_angle;            // 256 to a full turn; 0 looks east, 64 south
+u8 render_corner = 16;      // rows the renderer leaves alone in the top left
+                            //   corner of the screen: the map is there
 
 void render_init();         // to be called when the map has changed
 void render();              // draws what the player sees
@@ -92,6 +94,7 @@ void dig() {
 // shade 2 and the player, added when the map is shown, shade 3.
 
 u8 chart[64];
+u8 marked;                  // the byte of the chart the player is shown in
 
 void draw_chart() {
     u8 cell = 0;
@@ -112,18 +115,27 @@ void draw_chart() {
 // The bits of each of the four pixels of a screen byte.
 const u8 pixel[4] = { 0x03, 0x0c, 0x30, 0xc0 };
 
-// Put the map in the corner of the screen, over the picture, and the
-// player on it.
-void show_chart() {
-    u8* from = chart;
-    u8* to = SCREEN;
-    for (u8 row = 0; row < 16; row++) {
-        for (u8 i = 0; i < 4; i++) to[i] = *from++;
-        to += ROW_BYTES;
-    }
+// Where byte number i of the map is on the screen: in the top left corner,
+// which the renderer leaves alone (render_corner).
+u8* spot(u8 i) {
+    return SCREEN + (u16)(i >> 2) * ROW_BYTES + (i & 3);
+}
+
+// Show the player on the map. The screen is on view all the time, also in
+// the middle of a frame, so the dot is put in its new place before it is
+// taken from the old one: there is never a moment without it.
+void show_player() {
     u8 column = player_x >> 8;
-    u8 row = player_y >> 8;
-    SCREEN[(u16)row * ROW_BYTES + (column >> 2)] |= pixel[column & 3];
+    u8 here = (u8)(player_y >> 8) * 4 + (column >> 2);
+    *spot(here) = chart[here] | pixel[column & 3];
+    if (here != marked) *spot(marked) = chart[marked];
+    marked = here;
+}
+
+// Put the whole map on the screen, and the player on it.
+void show_chart() {
+    for (u8 i = 0; i < 64; i++) *spot(i) = chart[i];
+    show_player();
 }
 
 // ------------------------------------------------------------ walking
@@ -169,6 +181,8 @@ void move() {
 
 // ------------------------------------------------------------- the game
 
+const u16 PAUSE = 2600;     // how long each step of the shutter stays
+
 // Begin a maze: each level digs its own, the same one every time.
 void begin() {
     print("Maze ");
@@ -178,26 +192,31 @@ void begin() {
     for (u8 i = 0; i < 8; i++) random();
     dig();
     render_init();
-    draw_chart();
     // In the middle of the first room, looking along the one passage that
     // leaves it.
     player_x = 0x0180;
     player_y = 0x0180;
     player_angle = maze_map[START + 1] ? 64 : 0;
+    draw_chart();
+    show_chart();
 }
 
-// Close the picture like a shutter, from the top and from the bottom,
-// while the view is still being drawn behind it.
+// Close the picture like a shutter: bright bars from the top and from the
+// bottom, four rows more at each step, until they meet.
 void shutter() {
-    for (u8 rows = 4; rows <= 32; rows += 4) {
-        render();
-        u8* top = SCREEN;
-        u8* bottom = SCREEN + (u16)(SCREEN_HEIGHT - rows) * ROW_BYTES;
-        for (u16 n = (u16)rows * ROW_BYTES; n; n--) {
-            *top++ = 0xff;
-            *bottom++ = 0xff;
+    u8* top = SCREEN;
+    u8* bottom = SCREEN + (u16)(SCREEN_HEIGHT - 4) * ROW_BYTES;
+    for (u8 step = 0; step < 8; step++) {
+        for (u8 n = 0; n < 4 * ROW_BYTES; n++) {
+            top[n] = 0xff;
+            bottom[n] = 0xff;
         }
+        top += 4 * ROW_BYTES;
+        bottom -= 4 * ROW_BYTES;
         *FRAME = 0;
+        // Time in this game is the time the CPU takes (ADR 0010), so a
+        // pause is counting: about as long as a frame takes to draw.
+        for (u16 wait = 0; wait < PAUSE; wait++) { }
     }
 }
 
@@ -207,7 +226,7 @@ void main() {
     for (;;) {
         move();
         render();
-        show_chart();
+        show_player();
         *FRAME = 0;
         if (cell_at(player_x, player_y) == EXIT) {
             shutter();

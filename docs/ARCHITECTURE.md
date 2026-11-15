@@ -43,8 +43,9 @@ browser except `crates/wasm`.
 | `sim-fast` | Cycle-accurate arithmetic model of the Silicon CPU, written from `docs/ISA.md` | `isa` |
 | `machine` | The CPU netlist itself (`machine::hw`), `trait Engine` + both adapters, lockstep harness. From M2: memory map, devices, engine switching | `isa`, `hdl`, `sim-gate`, `sim-fast` |
 | `asm` | Assembler; owns the `Diagnostic` error type used by the whole toolchain | — |
-| `cc` | C-like compiler that emits assembly | `asm` |
-| `wasm` | Bindings: machine, toolchain, netlist metadata for the renderer | all of the above |
+| `cc` | C-like compiler that emits assembly (`docs/LANGUAGE.md`) | `asm` |
+| `programs` | The sources in `programs/`, carried as text and built with the toolchain when asked for; the generator of maze3d's tables | `asm`, `cc` |
+| `wasm` | Bindings: machine, programs and toolchain, netlist metadata for the renderer | all of the above |
 
 The encoding exists in exactly one place, `crates/isa/src/form.rs`. The
 decoder, the hardware's control unit and the opcode table of `docs/ISA.md` are
@@ -123,6 +124,39 @@ clock-cycle count, so runs are reproducible on either engine at any speed
 
 128×64 at 4 shades is the smallest screen on which a raycaster reads well and
 distance shading is visible, while a full redraw is only 2 KiB of writes.
+The screen is on view all the time: the page shows the framebuffer as it is,
+and there is no page flip, so programs draw in place
+([ADR 0013](adr/0013-the-screen-is-on-view-all-the-time.md)).
+
+### Programs and the toolchain
+
+```
+programs/*.c ──cc──► assembly ──┐
+programs/*.asm ─────────────────┴─asm──► ROM image + symbols + line map
+```
+
+- **`asm`** turns the assembly of `docs/ISA.md` into a ROM image. Every byte
+  comes out of `isa::Insn::encode`. Conditional jumps of any distance are
+  chosen by repeating the layout until nothing grows, which is what lets a
+  compiler emit jumps without knowing distances.
+- **`cc`** compiles the language of `docs/LANGUAGE.md`: it looks like C, has
+  four integer types, pointers and arrays, and leaves nothing undefined
+  ([ADR 0012](adr/0012-a-language-that-looks-like-c.md)). The generated code
+  keeps values in `a`/`ba`, reaches variables from `sp` and passes arguments
+  on the stack ([ADR 0011](adr/0011-compiled-code-accumulator-and-sp-frames.md)).
+  There is no optimiser; `asm { … }` is for what must be fast.
+- **`programs`** carries the sources as text. Nothing is built ahead of
+  time: the worker compiles the chosen program inside the WASM core (the
+  largest takes about 13 ms). The instruction set and the 4 MHz clock were
+  settled by writing the game's renderer first
+  ([ADR 0010](adr/0010-isa-and-clock-after-the-raycaster.md)).
+
+| Program | Written in | What |
+|---|---|---|
+| `maze3d` | C, renderer in assembly | the game: a maze dug anew for each level, seen from inside, with a map |
+| `bounce` | C | balls on the screen, paced by the timer |
+| `stripes` | assembly | the M2 demo |
+| `primes`, `hello` | C, assembly | write on the console and stop |
 
 `trait Engine` (in `crates/machine/src/lib.rs`) is the seam: `reset`,
 `step_cycle(&mut dyn Bus)`, `state() -> ArchState`, `load_state(&ArchState)`.
@@ -141,8 +175,9 @@ engines never copies memory.
 operand latch, cycle count) is the complete architectural state. The lockstep harness steps both
 engines one cycle at a time on the same program and compares `ArchState`, every
 bus access (address, data, direction) and periodically all memory. It runs
-generated random programs plus everything in `programs/`, millions of cycles in
-CI. Any divergence fails CI and is minimised into a regression test.
+generated random programs plus everything in `programs/`
+(`crates/programs/tests/lockstep.rs`), millions of cycles in CI. Any
+divergence fails CI and is minimised into a regression test.
 
 **No hidden state.** A test asserts that every `dff` in the CPU netlist is
 mapped to a bit of `ArchState`. That makes `ArchState` sufficient for a transfer
@@ -190,6 +225,11 @@ stuck-at-0/1, request metadata. Types live in `web/src/protocol.ts`.
 | wire levels | 1 B per wire (~10–20 kB) | uploaded as a data texture; shaders look up each wire's state by index |
 | wire activity | 1 B per wire | toggles since the last frame (saturating), drives glow and pulses when the clock is too fast to see individual edges |
 | arch state | ~32 B | live values on block labels, HUD |
+| console | a few bytes | what the program wrote since the frame before |
+
+Each frame also names the program in ROM and counts how many times the
+computer has been started, so that the page shows what the simulation is
+doing and not what it was last asked to do.
 
 Inside the worker these are typed-array views straight into WASM memory. To
 the main thread they travel through a `SharedArrayBuffer` when the page is
@@ -207,10 +247,12 @@ tiny rate. The nominal clock is 4 MHz; when the active engine cannot reach it
 (the gate engine), the simulation runs as fast as it can and the page shows
 the real rate (`web/src/clock.ts`).
 
-**As of M2** the copy path is implemented, with the framebuffer, wire levels
-and registers; the gate view is a flat floorplan, one instanced quad per gate,
-reading its wire's level from a one-row texture. Wire activity, the
-`SharedArrayBuffer` path and the hierarchical scene are still to come.
+**As of M3** the copy path is implemented, with the framebuffer, wire levels,
+registers and console; the page offers the programs of `programs/` and a
+link can name one (`?program=bounce&engine=gate`). The gate view is a flat
+floorplan, one instanced quad per gate, reading its wire's level from a
+one-row texture. Wire activity, the `SharedArrayBuffer` path and the
+hierarchical scene are still to come.
 
 ## 6. Rendering (M4)
 
@@ -250,9 +292,14 @@ reading its wire's level from a one-row texture. Wire activity, the
 - `hdl` components: exhaustive where the input space allows (≤ 2²⁰ vectors),
   `proptest` otherwise; each compared to a plain Rust reference function.
 - Engines: lockstep equivalence (§4), no-hidden-state test, transfer round-trip.
-- Toolchain: assembler encoding tests against `isa` tables; compiler tests run
-  compiled programs on `fast` and compare outputs.
-- Programs: golden framebuffer hashes after N frames with scripted input.
+- Toolchain: assembler encoding tests against `isa` tables. The compiler is
+  compared with a reference in plain Rust: random programs must print what
+  the reference computes, and multiplication, division and shifts are
+  checked for every pair of bytes.
+- Programs: each is compared with its rules written in plain Rust, frame by
+  frame with scripted keys, on both engines; pictures a person can check are
+  kept as text. A program that animates is also looked at between frames
+  (ADR 0013).
 - Frontend: Vitest for pure logic (layout, LOD selection, protocol, URL state);
   Playwright smoke test (loads, boots, zooms, no console errors).
 - Rule: a failing test is fixed at the cause, never weakened; every bug found

@@ -17,6 +17,10 @@
 ;       _player_y         byte is the cell, the low byte the place inside it
 ;       _player_angle   1 byte: direction of view, 256 to a full turn;
 ;                         0 looks east (+x) and 64 south (+y)
+;       _render_corner  1 byte: how many rows (0...63) to leave alone at
+;                         the top of the first four screen bytes: a corner
+;                         16 pixels wide for the caller to draw in. With 0
+;                         the whole screen is drawn
 ;
 ; The map must have walls all around: a ray stops only at a wall.
 ;
@@ -296,6 +300,14 @@ _render:
 ; and when all four have been cast one pass down the screen writes the 64
 ; bytes, XORing in the changes as it meets them. Above a wall is ceiling
 ; (shade 0), below it floor (shade 1).
+;
+; The screen is on view all the time, not only when a frame is finished,
+; so every byte is written once, with what it is to hold. For the same
+; reason a caller that wants something over the picture (a map) cannot
+; draw it afterwards: it would be painted over in the next frame and
+; flicker. It asks for a corner to be left alone instead (_render_corner).
+
+CORNER_BYTES = 4                ; the corner is this many screen bytes wide
 
         ld   a, [sp+COL]
         and  a, 3
@@ -346,6 +358,22 @@ _render:
         ld   z, delta
         ld   b, [sp+FIRST]      ; b = the byte in the row above
         ld   yl, SCREEN_HEIGHT
+        mov  a, xl
+        cmp  a, CORNER_BYTES
+        bc   .fill              ; to the right of the corner
+        ld   a, [_render_corner]
+        or   a, a
+        bz   .fill              ; no corner is asked for
+        mov  yh, a              ; rows of the corner still to pass
+.keep:  ld   a, [z]             ; they change b like any other row ...
+        xor  a, b
+        mov  b, a
+        xor  a, a
+        st   [z+], a
+        lea  x, [x+ROW_BYTES]   ; ... but the screen keeps what it has
+        dec  yl
+        dec  yh
+        bnz  .keep
 .fill:  ld   a, [z]
         xor  a, b               ; what changes in this row
         mov  b, a

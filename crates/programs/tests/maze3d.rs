@@ -17,6 +17,7 @@ mod common;
 use common::renderer::{model, paint, View};
 use common::{boot, build_file, picture, poke16, profile, run_frames, symbol};
 use silicon_asm::Assembly;
+use silicon_machine::board::map;
 use silicon_machine::{Bus, EngineKind, Machine};
 use silicon_programs::tables;
 use std::f64::consts::PI;
@@ -278,4 +279,44 @@ fn a_frame_costs_what_adr_0010_says() {
         share(4)
     );
     assert!((15..30).contains(&share(6)), "multiplying: {}%", share(6));
+}
+
+/// The renderer can be told to leave a corner of the screen alone, for the
+/// caller to draw in: the top rows of the first four screen bytes. A game
+/// that drew over the finished picture instead would have its drawing
+/// painted over again in the next frame, and it would flicker.
+#[test]
+fn the_corner_that_is_asked_for_is_left_alone() {
+    let program = build_file("maze3d/view.asm");
+    let maze = maze(&program);
+    let mut machine = boot(&program, EngineKind::Fast);
+    run_frames(&mut machine, 1, 2_000_000);
+    // Something that is certainly not the picture, to be found again.
+    let scribble = |at: usize| (at as u8).wrapping_mul(37) ^ 0x5a;
+    for rows in [0usize, 1, 16, 63] {
+        machine
+            .board_mut()
+            .write(symbol(&program, "_render_corner"), rows as u8);
+        for view in views().into_iter().step_by(31) {
+            for at in 0..map::FB_SIZE {
+                machine
+                    .board_mut()
+                    .write(map::FB_START + at as u16, scribble(at));
+            }
+            draw(&mut machine, &program, view);
+            let mut expected = paint(&model(&maze, view));
+            for row in 0..rows {
+                for byte in 0..4 {
+                    let at = row * map::ROW_BYTES + byte;
+                    expected[at] = scribble(at);
+                }
+            }
+            assert!(
+                machine.board().framebuffer() == expected,
+                "{rows} rows kept, {view:?}\nthe program drew\n{}it should be\n{}",
+                picture(machine.board().framebuffer()),
+                picture(&expected)
+            );
+        }
+    }
 }

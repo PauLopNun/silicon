@@ -24,11 +24,21 @@ void plot(u8 px, u8 py, u8 shade) {
     *at = *at & ~bits | solid[shade] & bits;
 }
 
-// Draw ball n in a shade; shade 0 takes it off the screen.
-void ball(u8 n, u8 shade) {
+// Draw ball n where it is.
+void ball(u8 n) {
     for (u8 j = 0; j < SIZE; j++) {
-        for (u8 i = 0; i < SIZE; i++) plot(x[n] + i, y[n] + j, shade);
+        for (u8 i = 0; i < SIZE; i++) plot(x[n] + i, y[n] + j, shade[n]);
     }
+}
+
+// Is the pixel (px, py) part of a ball, where the balls are now?
+u8 covered(u8 px, u8 py) {
+    for (u8 n = 0; n < BALLS; n++) {
+        // (To the left of a ball or above it, the difference would be
+        // negative: it wraps round to a large number.)
+        if (px - x[n] < SIZE && py - y[n] < SIZE) return 1;
+    }
+    return 0;
 }
 
 // Move one step along one axis, turning round at 0 and at `last`.
@@ -41,15 +51,34 @@ u8 step(u8 at, i8* speed, u8 last) {
     return (u8)next;
 }
 
+u8 old_x[BALLS];            // where the balls were before they moved
+u8 old_y[BALLS];
+
 void main() {
     for (;;) {
-        if (!(*KEYS & KEY_A)) {
-            for (u8 n = 0; n < BALLS; n++) ball(n, 0);
-        }
+        // The screen is on view all the time, not only when a frame is
+        // finished. A ball that was rubbed out and then drawn in its new
+        // place would be gone for a moment, and would be seen to blink. So
+        // the balls are first drawn where they now are ...
         for (u8 n = 0; n < BALLS; n++) {
+            old_x[n] = x[n];
+            old_y[n] = y[n];
             x[n] = step(x[n], &dx[n], SCREEN_WIDTH - SIZE);
             y[n] = step(y[n], &dy[n], SCREEN_HEIGHT - SIZE);
-            ball(n, shade[n]);
+            ball(n);
+        }
+        // ... and then what is left of them where they were is taken away,
+        // unless they are to leave trails.
+        if (!(*KEYS & KEY_A)) {
+            for (u8 n = 0; n < BALLS; n++) {
+                for (u8 j = 0; j < SIZE; j++) {
+                    for (u8 i = 0; i < SIZE; i++) {
+                        u8 px = old_x[n] + i;
+                        u8 py = old_y[n] + j;
+                        if (!covered(px, py)) plot(px, py, 0);
+                    }
+                }
+            }
         }
         *FRAME = 0;
 

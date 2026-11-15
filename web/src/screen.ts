@@ -57,3 +57,23 @@ export function keysRegister(held: Iterable<string>): number {
   for (const code of held) keys |= KEY_BITS[code] ?? 0;
   return keys;
 }
+
+/**
+ * Does a focused control of this kind use the key itself? Then the key is
+ * left to it and not passed on to the computer: arrows move through a list,
+ * Enter presses a button, and a text field takes everything.
+ */
+export function controlUsesKey(tagName: string, code: string): boolean {
+  switch (tagName.toUpperCase()) {
+    case 'SELECT':
+      return code.startsWith('Arrow') || code === 'Enter';
+    case 'BUTTON':
+    case 'A':
+      return code === 'Enter';
+    case 'INPUT':
+    case 'TEXTAREA':
+      return true;
+    default:
+      return false;
+  }
+}

@@ -10,6 +10,7 @@
 _player_x:      .res 2          ; cells, 8.8: high byte = cell
 _player_y:      .res 2
 _player_angle:  .res 1          ; 256 to a full turn; 0 is east, 64 south
+_render_corner: .res 1          ; 0: the renderer draws the whole screen
         .rom
 
         ld   a, 0x80            ; the middle of cell (1, 1)
