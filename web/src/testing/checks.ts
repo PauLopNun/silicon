@@ -156,6 +156,54 @@ export function expectProperRouting(net: NetlistInfo, tree: ModuleTree, layout: 
       const reached = feet.some(([fx, fy]) => Math.abs(fx - x) < 0.1 && Math.abs(fy - y) < EPS);
       if (!reached) throw new Error(`wire ${wire} does not reach gate ${gate}`);
     }
+
+    // Every point knows how far it is from the driver, along the wire.
+    const driverGate = gatesOn.get(wire)!.find((g) => field(g, 3) === wire);
+    // The distance at each point, as every segment that touches it tells it.
+    const told = new Map<string, number[]>();
+    let farthest = 0;
+    for (const s of mine) {
+      const e = routing.ends.subarray(s * 6, s * 6 + 6);
+      const [s0, s1] = [routing.along[s * 2]!, routing.along[s * 2 + 1]!];
+      if (driverGate === undefined) {
+        // Nothing drives it from inside: there is no way along it.
+        expect([s0, s1, routing.reach[s]]).toEqual([-1, -1, -1]);
+        continue;
+      }
+      // Along a straight segment the distance grows by the segment's length.
+      const length = Math.abs(e[0]! - e[3]!) + Math.abs(e[1]! - e[4]!) + Math.abs(e[2]! - e[5]!);
+      expect(Math.abs(s1 - s0)).toBeCloseTo(length, 4);
+      expect(Math.min(s0, s1)).toBeGreaterThanOrEqual(0);
+      farthest = Math.max(farthest, s0, s1);
+      for (const [k, v] of [
+        [key(e[0]!, e[1]!, e[2]!), s0],
+        [key(e[3]!, e[4]!, e[5]!), s1],
+      ] as const) {
+        if (!told.has(k)) told.set(k, []);
+        told.get(k)!.push(v);
+      }
+    }
+    if (driverGate !== undefined) {
+      // Segments that meet agree on the distance where they meet.
+      for (const [k, values] of told) {
+        if (Math.max(...values) - Math.min(...values) > 1e-4) {
+          throw new Error(`wire ${wire}: segments disagree at ${k}: ${values.join(', ')}`);
+        }
+      }
+      // It is 0 at the driver's output pin and nowhere else…
+      const zeros = [...told].filter(([, values]) => values[0]! < 1e-6).map(([k]) => k);
+      const out = key(
+        zeros.length === 1 ? Number(zeros[0]!.split(',')[0]) : NaN,
+        layout.gates[driverGate * 2 + 1]!,
+        GATE_TOP,
+      );
+      expect(zeros).toEqual([out]);
+      expect(Math.abs(Number(out.split(',')[0]) - (layout.gates[driverGate * 2]! + PIN_X))).toBeLessThan(0.1);
+      // …and largest at a pin of a gate that reads the wire, as `reach` says.
+      for (const s of mine) expect(routing.reach[s]).toBeCloseTo(farthest, 4);
+      const ends = [...told].filter(([, values]) => Math.abs(values[0]! - farthest) < 1e-4).map(([k]) => k);
+      expect(ends.some((k) => Math.abs(Number(k.split(',')[2]) - GATE_TOP) < EPS)).toBe(true);
+    }
   }
   // Nothing is drawn for a wire that is not in the netlist.
   for (const wire of segments.keys()) expect(pins.has(wire)).toBe(true);

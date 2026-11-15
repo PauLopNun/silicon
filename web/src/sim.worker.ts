@@ -44,6 +44,11 @@ async function main(): Promise<void> {
 
   let running = true;
   let dirty = true;
+  /**
+   * Clock cycles of every frame to compute on the gates while the fast
+   * engine runs the program, so that the page can show the wires; 0: none.
+   */
+  let sampling = 0;
   let lastTick = performance.now();
   let lastPublish = -Infinity;
   const pacer = new Pacer(NOMINAL_HZ);
@@ -54,10 +59,29 @@ async function main(): Promise<void> {
   // the memory buffer is replaced if WASM memory grows.)
   const copy = (ptr: number, len: number) => new Uint8Array(wasm.memory.buffer, ptr, len).slice();
 
-  const publish = () => {
+  /**
+   * Send the page everything it shows. `sample` clock cycles, which the
+   * clock was about to run anyway, are run here on the gates if the fast
+   * engine is running the CPU and sampling is on.
+   */
+  const publish = (sample: number) => {
+    let wiresFrom: 'gate' | 'sample' | 'old';
+    let sampled = 0;
+    if (machine.engine() === 'gate') {
+      // The levels now, and everything that changed since the last look.
+      machine.look_at_wires();
+      wiresFrom = 'gate';
+    } else if (sampling > 0) {
+      // A sample of no cycles (the clock is stopped) still gives the wires
+      // the levels they have in the state the CPU is in.
+      machine.sample_on_gates(sample);
+      wiresFrom = 'sample';
+      sampled = sample;
+    } else {
+      machine.look_at_wires();
+      wiresFrom = 'old';
+    }
     const framebuffer = copy(machine.framebuffer_ptr(), machine.framebuffer_len());
-    // The levels now, and everything that changed since the last look.
-    machine.look_at_wires();
     const wires = copy(machine.wires_ptr(), machine.wires_len());
     const activity = copy(machine.activity_ptr(), machine.activity_len());
     const arch = machine.arch_state();
@@ -77,6 +101,8 @@ async function main(): Promise<void> {
         frames: machine.frames(),
         framebuffer,
         wires,
+        wiresFrom,
+        sampled,
         activity,
         arch,
         console: written,
@@ -97,11 +123,13 @@ async function main(): Promise<void> {
     engine: machine.engine() as EngineKind,
     programs,
     gates: machine.gate_table(),
+    levels: machine.gate_levels(),
     moduleParents: machine.module_parents(),
     moduleNames: machine.module_names().split('\n'),
     wireCount: machine.wires_len(),
     ram: {
       gates: ram.gate_table(),
+      levels: ram.gate_levels(),
       moduleParents: ram.module_parents(),
       moduleNames: ram.module_names().split('\n'),
       wireCount: ram.wires_len(),
@@ -140,6 +168,9 @@ async function main(): Promise<void> {
         // Breaking a gate may have moved the CPU to the gate engine.
         capacity.reset();
         pacer.clear();
+        break;
+      case 'sampling':
+        sampling = Math.max(0, Math.floor(command.cycles));
         break;
       case 'ram':
         ram.set_inputs(command.addr, command.data, command.write);
@@ -187,23 +218,36 @@ async function main(): Promise<void> {
     const due = running ? pacer.advance(now - lastTick) : 0;
     lastTick = now;
 
+    // With a sample to take for the gates, a message is decided on before the
+    // cycles are run, because its sample is taken out of them: the last
+    // cycles before the message, never cycles added to what is due, so the
+    // clock keeps its rate whatever it is (at 10 Hz every cycle is in a
+    // sample). Otherwise it is decided once they have run.
+    const sampled = sampling > 0 && due >= 1 && machine.engine() === 'fast';
+    const early = sampled && now - lastPublish >= PUBLISH_MS;
     let ran = 0;
+    let sample = 0;
     if (due >= 1) {
+      if (early) sample = Math.min(sampling, due);
+      const onActive = due - sample;
       const chunk = chunkSize(capacity.rate);
       const deadline = now + SLICE_MS;
-      while (ran < due && performance.now() < deadline) {
-        const cycles = Math.min(chunk, due - ran);
+      while (ran < onActive && performance.now() < deadline) {
+        const cycles = Math.min(chunk, onActive - ran);
         machine.run(cycles);
         ran += cycles;
       }
-      capacity.sample(ran, performance.now() - now);
-      pacer.ran(ran);
+      if (ran > 0) capacity.sample(ran, performance.now() - now);
+      pacer.ran(ran + sample);
       dirty = true;
     }
 
-    if (dirty && performance.now() - lastPublish >= PUBLISH_MS) publish();
+    // (With sampling on and no sample taken, a message now would show the
+    // wires as having done nothing, between two that show them busy.)
+    const publishing = sampled ? early : performance.now() - lastPublish >= PUBLISH_MS;
+    if (dirty && publishing) publish(sample);
     // Keep going at once if there was work; otherwise sleep a little.
-    if (ran > 0) channel.port2.postMessage(0);
+    if (ran + sample > 0) channel.port2.postMessage(0);
     else setTimeout(tick, 4);
   };
   channel.port1.onmessage = tick;

@@ -7,6 +7,7 @@
  * page. The page that shows the computer never uses it.
  */
 import { GATE_FIELDS, type NetlistInfo } from '../protocol';
+import { gateLevels } from './levels';
 
 /** A small generator of repeatable pseudo-random numbers in [0, 1). */
 export function mulberry32(seed: number): () => number {
@@ -73,8 +74,10 @@ export function syntheticNetlist(shape: SyntheticShape): NetlistInfo {
     }
   }
   if (gates.length % GATE_FIELDS !== 0) throw new Error('unreachable');
+  const table = Uint32Array.from(gates);
   return {
-    gates: Uint32Array.from(gates),
+    gates: table,
+    levels: gateLevels(table, wire),
     moduleParents: Int32Array.from(parents),
     moduleNames: names,
     wireCount: wire,

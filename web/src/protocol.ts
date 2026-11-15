@@ -15,6 +15,13 @@ export const GATE_FIELDS = 5;
 export interface NetlistInfo {
   /** Per gate: kind (0 = NAND, 1 = DFF), input wire a, input wire b, output wire, module index. */
   gates: Uint32Array;
+  /**
+   * Per gate: its logic depth. 0 for a flip-flop, 1 for a NAND fed only by
+   * inputs and flip-flops, and so on: the order in which the gate engine
+   * evaluates the gates, and how many gate delays after a clock edge each
+   * output is settled.
+   */
+  levels: Uint32Array;
   /** Parent of each module; the top module's parent is -1. */
   moduleParents: Int32Array;
   moduleNames: string[];
@@ -40,6 +47,12 @@ export type ToWorker =
   /** The memory made of gates: one clock edge (writes, if writing is on). */
   | { type: 'ram-clock' }
   | { type: 'engine'; engine: EngineKind }
+  /**
+   * While the fast engine runs the program, compute this many clock cycles
+   * of every frame on the gates, so that the page can show the wires: a
+   * sample of what the CPU is doing. 0 turns it off.
+   */
+  | { type: 'sampling'; cycles: number }
   /** Target clock rate in cycles per second; `null` means as fast as possible. */
   | { type: 'clock'; hz: number | null }
   /** Keys held down, as the bits of the machine's KEYS register. */
@@ -77,6 +90,16 @@ export interface FrameState {
    * stay as the gate engine left them.
    */
   wires: Uint8Array;
+  /**
+   * Where `wires` and `activity` come from. `gate`: the gate engine is
+   * running the CPU and they are of every cycle. `sample`: the fast engine
+   * is, and they are of the `sampled` cycles computed on the gates for
+   * this message (the levels being those at their end). `old`: they were
+   * not computed for this message and are as they were last.
+   */
+  wiresFrom: 'gate' | 'sample' | 'old';
+  /** Clock cycles computed on the gates for this message when `wiresFrom` is `sample`. */
+  sampled: number;
   /**
    * One byte per wire: how busy it has been since the frame message before
    * this one. 0 if it did not change at all, otherwise 1 to 255 on a

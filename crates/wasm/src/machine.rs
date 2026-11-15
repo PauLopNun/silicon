@@ -42,6 +42,17 @@ pub(crate) fn gate_table(netlist: &Netlist) -> Vec<u32> {
     out
 }
 
+/// The logic depth of every gate of a netlist: 0 for a flip-flop, 1 for a
+/// NAND fed only by inputs and flip-flops, and so on. This is the order in
+/// which the gate engine evaluates them, and how many gate delays after a
+/// clock edge a gate's output is settled.
+pub(crate) fn gate_levels(netlist: &Netlist) -> Vec<u32> {
+    netlist
+        .levelize()
+        .expect("a netlist that simulates has no combinational loop")
+        .level
+}
+
 /// Parent of each module of a netlist, by index; the top module's is -1.
 pub(crate) fn module_parents(netlist: &Netlist) -> Vec<i32> {
     netlist
@@ -221,6 +232,32 @@ impl Machine {
         self.activity_since = now;
     }
 
+    /// While the fast engine runs the program, find out what the gates are
+    /// doing by running a sample of it on them: the next `cycles` clock
+    /// cycles are computed on the gate engine, the wires are looked at (as
+    /// by [`Machine::look_at_wires`], the activity being that of exactly
+    /// these cycles), and the CPU goes back to the fast engine.
+    ///
+    /// The cycles are cycles of the program like any others: the two engines
+    /// agree on every one, so the program cannot tell. What the page shows
+    /// from this is true of the cycles sampled and says nothing of the rest.
+    ///
+    /// Returns `false`, having done nothing, if the gate engine is already
+    /// running the CPU: then every cycle is on the gates and there is
+    /// nothing to sample.
+    pub fn sample_on_gates(&mut self, cycles: u32) -> bool {
+        if self.core.engine() == EngineKind::Gate {
+            return false;
+        }
+        // Handing over clears the counts of changes: they start with the sample.
+        self.core.set_engine(EngineKind::Gate);
+        self.activity_since = self.core.board().cycles();
+        self.core.run(cycles as u64);
+        self.look_at_wires();
+        self.core.set_engine(EngineKind::Fast);
+        true
+    }
+
     /// Address of the wire levels as of the last [`Machine::look_at_wires`]:
     /// one byte per wire, 0 or 1.
     pub fn wires_ptr(&self) -> *const u8 {
@@ -354,6 +391,12 @@ impl Machine {
     /// input wire `a`, input wire `b`, output wire, module index.
     pub fn gate_table(&self) -> Vec<u32> {
         gate_table(self.core.gate().sim().netlist())
+    }
+
+    /// The logic depth of every gate: how many gate delays after a clock
+    /// edge its output is settled (0 for a flip-flop).
+    pub fn gate_levels(&self) -> Vec<u32> {
+        gate_levels(self.core.gate().sim().netlist())
     }
 
     /// Parent of each module, by index; the top module's parent is -1.
@@ -622,6 +665,71 @@ mod tests {
                 assert_eq!(doc, control::SIGNAL_DOCS[bit]);
             }
         }
+    }
+
+    #[test]
+    fn sampling_on_the_gates_shows_the_wires_and_changes_nothing() {
+        // Two computers playing the same game with the same keys: one only
+        // on the fast engine, the other sampled on the gates in every frame.
+        let mut plain = Machine::running("maze3d").unwrap();
+        let mut sampled = Machine::running("maze3d").unwrap();
+        for frame in 0..40u32 {
+            let keys = (frame / 7 % 4) as u8 | 1;
+            plain.set_keys(keys);
+            sampled.set_keys(keys);
+            plain.run(66_667);
+            sampled.run(66_667 - 256);
+            assert!(sampled.sample_on_gates(256));
+            assert_eq!(sampled.engine(), "fast");
+            assert_eq!(sampled.cycles(), plain.cycles());
+            assert_eq!(sampled.arch_state(), plain.arch_state(), "frame {frame}");
+        }
+        assert!(sampled.core.board() == plain.core.board());
+        assert_eq!(sampled.frames(), plain.frames());
+
+        // What was seen is the sample: levels, and activity over its cycles.
+        let busy = sampled.activity().iter().filter(|&&a| a > 0).count();
+        assert!(busy > 300, "{busy} wires changed during the sample");
+        let gate = sampled.core.gate();
+        let pc: u16 = gate
+            .state_wires()
+            .pc
+            .iter()
+            .enumerate()
+            .map(|(i, w)| (sampled.levels()[w.index()] as u16) << i)
+            .sum();
+        assert_eq!(pc, sampled.core.state().pc, "the wires of pc spell pc");
+        // One change in a sample of 256 cycles is told apart from none.
+        assert_eq!(activity_byte(1, 256), 16);
+
+        // On the gate engine there is nothing to sample.
+        sampled.use_gate_engine(true);
+        let cycles = sampled.cycles();
+        assert!(!sampled.sample_on_gates(256));
+        assert_eq!(sampled.cycles(), cycles);
+    }
+
+    #[test]
+    fn gate_levels_follow_the_wiring() {
+        let m = Machine::demo();
+        let levels = m.gate_levels();
+        let gates = m.gate_table();
+        assert_eq!(levels.len() * GATE_FIELDS, gates.len());
+        // The level of the gate driving each wire; inputs and constants are 0.
+        let mut of_wire = vec![0u32; m.wires_len()];
+        for (g, gate) in gates.chunks(GATE_FIELDS).enumerate() {
+            of_wire[gate[3] as usize] = if gate[0] == 1 { 0 } else { levels[g] };
+        }
+        for (g, gate) in gates.chunks(GATE_FIELDS).enumerate() {
+            if gate[0] == 1 {
+                assert_eq!(levels[g], 0, "a flip-flop starts the count again");
+            } else {
+                let deepest = of_wire[gate[1] as usize].max(of_wire[gate[2] as usize]);
+                assert_eq!(levels[g], deepest + 1, "gate {g}");
+            }
+        }
+        // The critical path of the CPU, as measured in M1.
+        assert_eq!(levels.iter().max(), Some(&67));
     }
 
     #[test]

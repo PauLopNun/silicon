@@ -9,6 +9,11 @@
  * wires between the blocks of the CPU pass above those blocks' lids. A wire
  * is shown when the module it belongs to is open.
  *
+ * Every point of a wire also knows how far it is, along the wire, from the
+ * gate that drives it. That is what lets a change be drawn travelling the
+ * way it really goes: out of the driving gate and into the gates that read
+ * it.
+ *
  * This is a drawing of the connections, exact about what is joined to what.
  * It is not a routed chip: wires of the same layer may cross and overlap.
  */
@@ -25,6 +30,14 @@ export interface Routing {
   wire: Uint32Array;
   /** Per segment: the module the wire belongs to. */
   module: Uint32Array;
+  /**
+   * Per segment: how far each of its two ends is from the output pin of the
+   * gate that drives the wire, measured along the wire. Both -1 for a wire
+   * that no gate drives (it comes from outside: an input).
+   */
+  along: Float32Array;
+  /** Per segment: the same distance at the pin of its wire that is farthest from the driver. */
+  reach: Float32Array;
 }
 
 /** A gate's pins, from the centre of its cell: the output on the right, the inputs on the left. */
@@ -68,11 +81,8 @@ export function routeWires(net: NetlistInfo, tree: ModuleTree, layout: SceneLayo
   const ends: number[] = [];
   const wires: number[] = [];
   const modules: number[] = [];
-  const segment = (w: number, m: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number) => {
-    ends.push(x0, y0, z0, x1, y1, z1);
-    wires.push(w);
-    modules.push(m);
-  };
+  const along: number[] = [];
+  const reach: number[] = [];
 
   // Wires 0 and 1 are the constants: they are the supply rails, not signals.
   for (let w = 2; w < net.wireCount; w++) {
@@ -103,9 +113,37 @@ export function routeWires(net: NetlistInfo, tree: ModuleTree, layout: SceneLayo
 
     const trunkZ = layout.wireZ[home]!;
     const branchZ = trunkZ + BRANCH_RISE;
+    const rise = branchZ - GATE_TOP;
     // The trunk runs along the first pin's row: the driver's, when there is one.
     const trunkY = pins[1]! + TRUNK_SPREAD * spread(w, 1);
     const shift = BRANCH_SPREAD * spread(w, 2);
+    const driven = source >= 0;
+    // Where the driver's branch meets the trunk, and how far along the wire that is.
+    const sourceX = pins[0]! + shift;
+    const toTrunk = rise + Math.abs(pins[1]! - trunkY) + BRANCH_RISE;
+
+    const first = wires.length;
+    let farthest = 0;
+    /** A segment between two points, each with its distance from the driver's pin. */
+    const segment = (
+      x0: number,
+      y0: number,
+      z0: number,
+      s0: number,
+      x1: number,
+      y1: number,
+      z1: number,
+      s1: number,
+    ) => {
+      // A pin exactly on the trunk's track needs no branch: nothing to draw.
+      if (x0 === x1 && y0 === y1 && z0 === z1) return;
+      ends.push(x0, y0, z0, x1, y1, z1);
+      wires.push(w);
+      modules.push(home);
+      along.push(driven ? s0 : -1, driven ? s1 : -1);
+      farthest = Math.max(farthest, s0, s1);
+    };
+
     let west = Infinity;
     let east = -Infinity;
     for (let p = 0; p < pins.length; p += 2) {
@@ -113,11 +151,28 @@ export function routeWires(net: NetlistInfo, tree: ModuleTree, layout: SceneLayo
       const y = pins[p + 1]!;
       west = Math.min(west, x);
       east = Math.max(east, x);
-      segment(w, home, x, y, GATE_TOP, x, y, branchZ);
-      segment(w, home, x, y, branchZ, x, trunkY, branchZ);
-      segment(w, home, x, trunkY, branchZ, x, trunkY, trunkZ);
+      const across = Math.abs(y - trunkY);
+      if (driven && p === 0) {
+        // Out of the driver: up from its pin, across to the trunk, down onto it.
+        segment(x, y, GATE_TOP, 0, x, y, branchZ, rise);
+        segment(x, y, branchZ, rise, x, trunkY, branchZ, rise + across);
+        segment(x, trunkY, branchZ, rise + across, x, trunkY, trunkZ, toTrunk);
+      } else {
+        // Into a gate that reads it: off the trunk, across, and down to the pin.
+        const atTrunk = toTrunk + Math.abs(x - sourceX);
+        segment(x, trunkY, trunkZ, atTrunk, x, trunkY, branchZ, atTrunk + BRANCH_RISE);
+        segment(x, trunkY, branchZ, atTrunk + BRANCH_RISE, x, y, branchZ, atTrunk + BRANCH_RISE + across);
+        segment(x, y, branchZ, atTrunk + BRANCH_RISE + across, x, y, GATE_TOP, atTrunk + BRANCH_RISE + across + rise);
+      }
     }
-    if (east > west) segment(w, home, west, trunkY, trunkZ, east, trunkY, trunkZ);
+    // The trunk, in two pieces if the driver joins it in the middle: along
+    // each piece the distance from the driver only grows.
+    if (east > west) {
+      const joint = Math.min(east, Math.max(west, sourceX));
+      if (joint > west) segment(joint, trunkY, trunkZ, toTrunk, west, trunkY, trunkZ, toTrunk + joint - west);
+      if (east > joint) segment(joint, trunkY, trunkZ, toTrunk, east, trunkY, trunkZ, toTrunk + east - joint);
+    }
+    for (let s = first; s < wires.length; s++) reach.push(driven ? farthest : -1);
   }
 
   return {
@@ -125,5 +180,7 @@ export function routeWires(net: NetlistInfo, tree: ModuleTree, layout: SceneLayo
     ends: Float64Array.from(ends),
     wire: Uint32Array.from(wires),
     module: Uint32Array.from(modules),
+    along: Float32Array.from(along),
+    reach: Float32Array.from(reach),
   };
 }

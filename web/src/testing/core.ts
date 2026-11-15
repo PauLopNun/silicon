@@ -26,6 +26,7 @@ export function ramNetlist(): NetlistInfo {
   const ram = new RamExhibit();
   return {
     gates: ram.gate_table(),
+    levels: ram.gate_levels(),
     moduleParents: ram.module_parents(),
     moduleNames: ram.module_names().split('\n'),
     wireCount: ram.wires_len(),
@@ -36,6 +37,7 @@ export function ramNetlist(): NetlistInfo {
 export function netlistOf(machine: Machine): NetlistInfo {
   return {
     gates: machine.gate_table(),
+    levels: machine.gate_levels(),
     moduleParents: machine.module_parents(),
     moduleNames: machine.module_names().split('\n'),
     wireCount: machine.wires_len(),

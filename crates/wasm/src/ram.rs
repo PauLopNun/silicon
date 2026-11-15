@@ -3,7 +3,7 @@
 //! clock edge, read it back. It runs in its own gate-level simulator, apart
 //! from the computer.
 
-use crate::machine::{activity_byte, gate_table, module_names, module_parents};
+use crate::machine::{activity_byte, gate_levels, gate_table, module_names, module_parents};
 use silicon_machine::exhibit::{self, Ram};
 use silicon_sim_gate::GateSim;
 use wasm_bindgen::prelude::*;
@@ -112,6 +112,10 @@ impl RamExhibit {
 
     pub fn gate_table(&self) -> Vec<u32> {
         gate_table(&self.ram.netlist)
+    }
+
+    pub fn gate_levels(&self) -> Vec<u32> {
+        gate_levels(&self.ram.netlist)
     }
 
     pub fn module_parents(&self) -> Vec<i32> {

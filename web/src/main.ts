@@ -29,7 +29,7 @@ import { GATE_TOP, gateRect, rectOf } from './scene/layout';
 import { focusModule } from './scene/lod';
 import { Navigator } from './scene/navigator';
 import type { Hit } from './scene/pick';
-import { engineFor, engineNote, parseEngineMode, type EngineMode } from './scene/policy';
+import { engineFor, engineNote, parseEngineMode, samplingFor, type EngineMode } from './scene/policy';
 import { gatePath, moduleAt, resolvePath } from './scene/tree';
 import { VALUES } from './scene/values';
 import { SceneView } from './scene/view';
@@ -74,6 +74,11 @@ interface Scene {
   /** The levels of its wires, as last reported. */
   levels: () => Uint8Array | undefined;
 }
+/**
+ * What gives off light is drawn with a glow around it, unless the link says
+ * not to (`?glow=off`, for a graphics card that finds it heavy).
+ */
+const GLOW = link.get('glow') !== 'off';
 /** The CPU. */
 let scene: Scene | undefined;
 /** The memory made of gates. */
@@ -129,7 +134,7 @@ function replaceSearch(search: string): void {
 }
 
 function buildScene(net: NetlistInfo): Scene {
-  const view = new SceneView(el<HTMLCanvasElement>('scene'), net, FLOORPLAN);
+  const view = new SceneView(el<HTMLCanvasElement>('scene'), net, FLOORPLAN, GLOW);
   const nav = new Navigator(view, {
     invalidate: () => (stale = true),
     hover: (hit) => {
@@ -159,7 +164,7 @@ function buildScene(net: NetlistInfo): Scene {
 
 /** The memory made of gates, on a canvas of its own. */
 function buildRamScene(net: NetlistInfo): Scene {
-  const view = new SceneView(el<HTMLCanvasElement>('ram-scene'), net, FLOORPLAN);
+  const view = new SceneView(el<HTMLCanvasElement>('ram-scene'), net, FLOORPLAN, GLOW);
   const nav = new Navigator(view, {
     invalidate: () => (stale = true),
     hover: (hit) => {
@@ -255,6 +260,7 @@ function setShowing(next: 'cpu' | 'ram'): void {
     if (next === 'ram' && current.view.camera.distance === 1) current.nav.jumpTo(current.nav.home());
   }
   replaceSearch(searchWith(location.search, 'view', next === 'ram' ? 'ram' : undefined));
+  sendSampling();
   stale = true;
 }
 
@@ -323,24 +329,29 @@ function afterRender(): void {
     replaceSearch(searchWith(location.search, 'at', focus > 0 ? view.tree.paths[focus] : undefined));
   }
 
-  // The gate engine runs exactly while gates are in sight: while one of the
-  // CPU's blocks is open. With the CPU open and its blocks closed only the
-  // wires between blocks show, and those are not worth a game at 2 frames/s.
+  if (!state) return;
+  // Left to itself, the gate engine runs while gates are in sight (one of
+  // the CPU's blocks is open) or the clock is stopped; see `policy.ts`.
   // Looking at the memory, no gate of the CPU is in sight.
-  const inside = current === scene ? scene.view.lod.entered[0]! : 0;
-  const engine = engineFor(mode, inside, faults.size);
-  if (state && engine !== state.engine && engine !== asked) {
+  const needs = {
+    inside: current === scene ? scene.view.lod.entered[0]! : 0,
+    broken: faults.size,
+    paused: !state.running,
+  };
+  const engine = engineFor(mode, needs);
+  if (engine !== state.engine && engine !== asked) {
     asked = engine;
     send({ type: 'engine', engine });
   }
-  if (state) el('engine-note').textContent = engineNote(mode, state.engine, inside, faults.size);
+  el('engine-note').textContent = engineNote(mode, state.engine, state.wiresFrom, needs);
 }
 
 /**
  * Main-thread milliseconds of the last pictures drawn: working out the
  * levels of detail, filling the state textures and handing the draw calls
- * to WebGL. What the graphics card then takes is not in it. Read by
- * `web/scripts/frametime.mjs` from `data-render-ms`.
+ * to WebGL. What the graphics card then takes is asked of the card itself
+ * (`SceneView.gpuMs`). Both are read by `web/scripts/frametime.mjs`, from
+ * `data-render-ms` and `data-gpu-ms`.
  */
 const renderTimes: number[] = [];
 
@@ -348,15 +359,22 @@ function frame(now: number): void {
   const current = active();
   if (current) {
     const moved = current.nav.tick(now);
-    if (current.view.resize() && (moved || stale)) {
+    // Drawn again when the camera moved, when the simulation said something
+    // new, and while something in the picture moves by itself.
+    if (current.view.resize() && (moved || stale || current.view.animating)) {
       stale = false;
       const start = performance.now();
-      current.view.render();
+      current.view.render(now);
       afterRender();
       renderTimes.push(performance.now() - start);
       if (renderTimes.length > 120) renderTimes.shift();
       const sorted = [...renderTimes].sort((a, b) => a - b);
       document.body.dataset.renderMs = (sorted[Math.floor(sorted.length / 2)] ?? 0).toFixed(2);
+      const gpu = current.view.gpuMs;
+      if (gpu !== undefined) document.body.dataset.gpuMs = gpu.toFixed(2);
+      // For the page checks: whether a step is being played back.
+      if (current.view.replaying) document.body.dataset.replay = '';
+      else delete document.body.dataset.replay;
     }
   }
   requestAnimationFrame(frame);
@@ -455,7 +473,14 @@ function showExplanation(msg: FrameState): void {
   );
 }
 
+/** The clock of the last state shown, to tell a single step from running. */
+let shown: { cycles: number; boot: number; running: boolean } | undefined;
+
 function show(msg: FrameState): void {
+  // A step: the clock was stopped before and is stopped now, and has moved.
+  const stepped =
+    shown !== undefined && !shown.running && !msg.running && shown.boot === msg.boot && msg.cycles > shown.cycles;
+  shown = { cycles: msg.cycles, boot: msg.boot, running: msg.running };
   state = msg;
   if (msg.engine === asked) asked = undefined;
   decodeFramebuffer(msg.framebuffer, screenPixels.data, AMBER);
@@ -469,11 +494,25 @@ function show(msg: FrameState): void {
     const changed = reported.size !== faults.size || [...reported].some(([g, l]) => faults.get(g) !== l);
     faults = reported;
     if (changed) showGatePanel();
-    scene.view.setWires(msg.wires, msg.activity, msg.engine === 'gate', faults.keys());
+    // The wires are live when the gates computed them for this state: all
+    // of its cycles on the gate engine, a sample of them on the fast one.
+    const live = msg.wiresFrom !== 'old';
+    scene.view.setWires(msg.wires, msg.activity, {
+      live,
+      streaming: msg.running && !msg.halted,
+      broken: faults.keys(),
+      step: stepped && live,
+    });
     for (const { module, text } of scene.values) scene.view.setValue(module, text(s));
   }
   if (ramScene) {
-    ramScene.view.setWires(msg.ram.wires, msg.ram.activity, true);
+    // The memory changes only when its inputs or its clock are worked by
+    // hand: whatever changed is a step.
+    ramScene.view.setWires(msg.ram.wires, msg.ram.activity, {
+      live: true,
+      streaming: false,
+      step: msg.ram.activity.some((a) => a > 0),
+    });
     showRam(msg.ram.words, msg.ram.out);
   }
   if (pointed) showPointed();
@@ -486,6 +525,7 @@ function show(msg: FrameState): void {
   el('engine').textContent = `${msg.engine} engine`;
   el('engine').dataset.engine = msg.engine;
   document.body.dataset.engine = msg.engine;
+  document.body.dataset.wires = msg.wiresFrom;
   el('speed').textContent = msg.running && !msg.halted ? formatRate(speed.rate) : msg.halted ? 'halted' : 'paused';
   el('fps').textContent = `${fps.rate.toFixed(1)} frames/s`;
   el('cycles').textContent = `cycle ${msg.cycles.toLocaleString('en-US')}`;
@@ -533,7 +573,13 @@ function setMode(next: EngineMode): void {
     el(`use-${each}`).setAttribute('aria-pressed', String(mode === each));
   }
   replaceSearch(searchWith(location.search, 'engine', mode === 'auto' ? undefined : mode));
+  sendSampling();
   stale = true;
+}
+
+/** How much of the program to compute on the gates while the fast engine runs it. */
+function sendSampling(): void {
+  send({ type: 'sampling', cycles: samplingFor(mode, showing === 'cpu') });
 }
 el('use-auto').addEventListener('click', () => setMode('auto'));
 el('use-gate').addEventListener('click', () => setMode('gate'));
@@ -542,12 +588,13 @@ el('engine').addEventListener('click', () => setMode(state?.engine === 'gate' ? 
 el('run').addEventListener('click', () => send({ type: 'run', running: !(state?.running ?? true) }));
 el('step').addEventListener('click', () => send({ type: 'step', cycles: 1 }));
 el('step-insn').addEventListener('click', () => send({ type: 'step-instruction' }));
-// Explaining: stop the clock and compute every gate, so that what lights up
-// in the scene after each step is what that step did.
-el('explain-start').addEventListener('click', () => {
+// Explaining: stop the clock, which brings the gate engine unless the fast
+// one alone was asked for, so that each step is played back in the scene.
+function explain(): void {
   send({ type: 'run', running: false });
-  setMode('gate');
-});
+  if (mode === 'fast') setMode('auto');
+}
+el('explain-start').addEventListener('click', explain);
 el('reset').addEventListener('click', () => send({ type: 'reset' }));
 el<HTMLSelectElement>('clock').addEventListener('change', (e) => {
   const value = (e.target as HTMLSelectElement).value;
@@ -691,12 +738,10 @@ function enterLesson(index: number): void {
     else current.nav.flyTo(current.nav.home());
   }
   if (step.explain) {
-    send({ type: 'run', running: false });
-    setMode('gate');
+    explain();
   } else if (state && !state.running) {
     // A step that is not about explaining runs the computer again.
     send({ type: 'run', running: true });
-    setMode('auto');
   }
   showLessonTask();
 }

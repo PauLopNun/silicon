@@ -1,5 +1,6 @@
 /** Small netlists made by hand, for tests. */
 import type { NetlistInfo } from '../protocol';
+import { gateLevels } from '../scene/levels';
 
 /**
  * A netlist with the given module tree and `gatesIn[m]` gates directly in
@@ -19,8 +20,10 @@ export function treeNetlist(parents: number[], names: string[], gatesIn: number[
       }
     });
   }
+  const table = Uint32Array.from(gates);
   return {
-    gates: Uint32Array.from(gates),
+    gates: table,
+    levels: gateLevels(table, wire),
     moduleParents: Int32Array.from(parents),
     moduleNames: names,
     wireCount: wire,

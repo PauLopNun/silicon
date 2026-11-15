@@ -23,6 +23,32 @@ animation of the real page (`docs/media/zoom.png`, made by
 `web/scripts/hero.mjs`); ADR 0015; a Pages workflow ready to publish the
 live demo, run by hand only (`.github/workflows/pages.yml`).
 
+In progress (2026-11-15), committed but **not finished**: the look of the scene.
+
+- Done and checked by eye in headless Chrome: a glow around what gives off
+  light (`scene/bloom.ts`, off with `?glow=off`); the lights of the gates
+  showing through closed lids; dashes moving along busy wires away from the
+  gate that drives them (`route.ts` now knows the distance along each wire);
+  a grid on the floor; in `auto`, 256 cycles of every frame computed on the
+  gates while the fast engine runs the program, so the wires are live from
+  afar (`Machine::sample_on_gates`, tested to change nothing); the gate
+  engine while the clock is stopped; the graphics card's time per picture
+  measured with a timer query (`frametime.mjs`: about 2.4 ms with the glow
+  at 1280×800 on an RTX 5060 Ti).
+- **Not working yet: the playback of a single step.** After Next cycle the
+  page reports a playback in progress, but pictures taken during it show no
+  pulse and no flash in `cpu/agu/adder16`, where the step certainly changes
+  wires. Cause not found. Start there: `setWires` with `step`, `uReplay`,
+  and `levelShown` in `scene/view.ts`.
+- Still to do after that: a page check for the playback and for the sample;
+  ADR 0016 for these decisions; README, ARCHITECTURE and the animation and
+  screenshots in `docs/media` brought up to date with the new look.
+- Seen while measuring: the gate engine reached about 95 kHz in the page
+  where it reached 217 kHz the same morning. The commit before this one
+  measures the same 95 kHz back to back, and `pnpm bench` still gives
+  0.20 M cycles/s, so it is the machine's state (headless Chrome's worker),
+  not the code.
+
 Launch checklist, in order:
 
 1. Check by hand in a real window: Chrome, Firefox, Safari, and a phone

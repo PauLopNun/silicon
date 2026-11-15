@@ -1,28 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import { engineFor, engineNote, parseEngineMode } from './policy';
+import { engineFor, engineNote, parseEngineMode, SAMPLE_CYCLES, samplingFor, type EngineNeeds } from './policy';
+
+const far: EngineNeeds = { inside: 0, broken: 0, paused: false };
 
 describe('engineFor', () => {
   it('uses the gate engine exactly while gates are plainly in sight', () => {
-    expect(engineFor('auto', 0)).toBe('fast');
-    expect(engineFor('auto', 0.3)).toBe('fast');
-    expect(engineFor('auto', 0.5)).toBe('gate');
-    expect(engineFor('auto', 1)).toBe('gate');
+    expect(engineFor('auto', far)).toBe('fast');
+    expect(engineFor('auto', { ...far, inside: 0.3 })).toBe('fast');
+    expect(engineFor('auto', { ...far, inside: 0.5 })).toBe('gate');
+    expect(engineFor('auto', { ...far, inside: 1 })).toBe('gate');
+  });
+
+  it('uses the gate engine while the clock is stopped, when left to itself', () => {
+    expect(engineFor('auto', { ...far, paused: true })).toBe('gate');
+    // An engine that was asked for stays, stopped or not.
+    expect(engineFor('fast', { ...far, paused: true })).toBe('fast');
+    expect(engineFor('gate', { ...far, paused: true })).toBe('gate');
   });
 
   it('runs the gates while any gate is broken, whatever was asked for', () => {
     for (const mode of ['auto', 'fast', 'gate'] as const) {
-      expect(engineFor(mode, 0, 1)).toBe('gate');
-      expect(engineFor(mode, 0, 3)).toBe('gate');
+      expect(engineFor(mode, { ...far, broken: 1 })).toBe('gate');
+      expect(engineFor(mode, { ...far, broken: 3 })).toBe('gate');
     }
-    expect(engineNote('fast', 'gate', 0, 1)).toMatch(/^A gate is broken/);
-    expect(engineNote('auto', 'gate', 0, 3)).toMatch(/^3 gates are broken/);
   });
 
   it('does as it is told when an engine was asked for', () => {
     for (const inside of [0, 0.3, 1]) {
-      expect(engineFor('gate', inside)).toBe('gate');
-      expect(engineFor('fast', inside)).toBe('fast');
+      expect(engineFor('gate', { ...far, inside })).toBe('gate');
+      expect(engineFor('fast', { ...far, inside })).toBe('fast');
     }
+  });
+});
+
+describe('samplingFor', () => {
+  it('samples the gates only when left to itself with the CPU on view', () => {
+    expect(samplingFor('auto', true)).toBe(SAMPLE_CYCLES);
+    expect(samplingFor('auto', false)).toBe(0);
+    // The fast engine alone was asked for: no gate is computed.
+    expect(samplingFor('fast', true)).toBe(0);
+    // On the gate engine every cycle is on the gates already.
+    expect(samplingFor('gate', true)).toBe(0);
+  });
+
+  it('takes a small share of a frame', () => {
+    // Against the 66,667 cycles the program runs in a frame at 4 MHz.
+    expect(SAMPLE_CYCLES).toBeGreaterThanOrEqual(64);
+    expect(SAMPLE_CYCLES / 66_667).toBeLessThan(0.01);
   });
 });
 
@@ -38,11 +62,17 @@ describe('parseEngineMode', () => {
 });
 
 describe('engineNote', () => {
-  it('says why things are slow, or that the wires shown are not live', () => {
-    expect(engineNote('auto', 'gate', 1)).toMatch(/looking inside the CPU/);
-    expect(engineNote('gate', 'gate', 0)).toMatch(/every gate is being simulated/i);
-    expect(engineNote('fast', 'fast', 0.4)).toMatch(/as the gate engine left them/);
-    expect(engineNote('auto', 'fast', 0)).toMatch(/Zoom into a block/);
-    expect(engineNote('fast', 'fast', 0)).toMatch(/full speed/);
+  it('says what is computed, and why', () => {
+    expect(engineNote('auto', 'gate', 'gate', { ...far, inside: 1 })).toMatch(/looking at gates/);
+    expect(engineNote('auto', 'gate', 'gate', { ...far, paused: true })).toMatch(/clock is stopped/);
+    expect(engineNote('gate', 'gate', 'gate', far)).toMatch(/^Every gate is computed/);
+    expect(engineNote('auto', 'fast', 'sample', far)).toMatch(new RegExp(`${SAMPLE_CYCLES} clock cycles of every frame`));
+    expect(engineNote('auto', 'fast', 'sample', far)).toMatch(/a sample/);
+    expect(engineNote('fast', 'fast', 'old', { ...far, inside: 0.4 })).toMatch(/as they were last/);
+  });
+
+  it('says first of all that a gate is broken', () => {
+    expect(engineNote('fast', 'gate', 'gate', { ...far, broken: 1 })).toMatch(/^A gate is broken/);
+    expect(engineNote('auto', 'gate', 'gate', { ...far, broken: 3, paused: true })).toMatch(/^3 gates are broken/);
   });
 });

@@ -48,6 +48,7 @@ describe('gate paths', () => {
   // Two NANDs, a flip-flop and another NAND in `top/m`, one flip-flop in `top`.
   const tree = buildTree({
     gates: Uint32Array.from([0, 0, 1, 2, 1, 0, 0, 1, 3, 1, 1, 2, 0, 4, 1, 0, 3, 4, 5, 1, 1, 5, 0, 6, 0]),
+    levels: Uint32Array.from([1, 1, 0, 2, 0]),
     moduleParents: Int32Array.from([-1, 0]),
     moduleNames: ['top', 'm'],
     wireCount: 7,
