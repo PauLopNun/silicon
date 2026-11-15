@@ -194,15 +194,17 @@ gate → fast:  s = gate.state();  fast.load_state(&s)
 
 `load_state` on the gate engine writes the flip-flop outputs through the
 `ArchState`↔`dff` map and re-settles the combinational logic. The worker
-switches to `gate` when the camera gets close enough to the CPU that live wires
-are visible (and back to `fast` when it leaves), or when the user picks an
-engine explicitly. The active engine and its real speed are always shown in the
+switches to `gate` while one of the CPU's blocks is at least half open in the
+scene, which is when gates are plainly in view, and back to `fast` otherwise;
+or the user picks an engine explicitly
+([ADR 0014](adr/0014-the-scene-opens-by-size-and-chooses-the-engine.md)). The active engine and its real speed are always shown in the
 UI. In `gate` mode the game runs slower than in `fast` mode; we show that
 honestly rather than hide it.
 
-**Gate engine design.** Levelized, compiled to flat arrays, one byte per wire,
-one NAND at a time. Measured in WASM it runs the 2,603-NAND CPU at about
-250 k cycles/s, five times the budget, so the bit-parallel evaluator that was
+**Gate engine design.** Levelized, compiled to flat arrays, one word per wire
+(its level, and a count of its changes for the wire-activity buffer), one
+NAND at a time. Measured in WASM it runs the 2,603-NAND CPU at about
+205 k cycles/s, four times the budget, so the bit-parallel evaluator that was
 planned here has been deferred
 ([ADR 0009](adr/0009-scalar-gate-engine-is-enough.md)). The fast engine
 measures 279 M cycles/s. `pnpm bench` reproduces both numbers.
@@ -223,7 +225,7 @@ stuck-at-0/1, request metadata. Types live in `web/src/protocol.ts`.
 |---|---|---|
 | framebuffer | 2048 B | uploaded as the screen texture |
 | wire levels | 1 B per wire (~10–20 kB) | uploaded as a data texture; shaders look up each wire's state by index |
-| wire activity | 1 B per wire | toggles since the last frame (saturating), drives glow and pulses when the clock is too fast to see individual edges |
+| wire activity | 1 B per wire | changes since the last frame, on a square-root scale of changes per cycle, counted by `sim-gate` itself (ADR 0014); drives the glow of busy wires and blocks |
 | arch state | ~32 B | live values on block labels, HUD |
 | console | a few bytes | what the program wrote since the frame before |
 
@@ -247,30 +249,49 @@ tiny rate. The nominal clock is 4 MHz; when the active engine cannot reach it
 (the gate engine), the simulation runs as fast as it can and the page shows
 the real rate (`web/src/clock.ts`).
 
-**As of M3** the copy path is implemented, with the framebuffer, wire levels,
-registers and console; the page offers the programs of `programs/` and a
-link can name one (`?program=bounce&engine=gate`). The gate view is a flat
-floorplan, one instanced quad per gate, reading its wire's level from a
-one-row texture. Wire activity, the `SharedArrayBuffer` path and the
-hierarchical scene are still to come.
+**As of M4** the copy path is implemented, with the framebuffer, wire levels
+and activity, registers and console. A link can name a program, an engine
+and a place: `?program=bounce&engine=gate&at=cpu/alu/adder8`. The
+`SharedArrayBuffer` path is still to come.
 
-## 6. Rendering (M4)
+## 6. Rendering (`web/src/scene/`)
 
-- **Scene = module tree.** Each module gets a box; children are laid out inside
-  the parent by a deterministic packing algorithm, with manual hints for the
-  top levels (case, board, CPU floorplan).
-- **Hierarchical LOD by projected size.** Far away a module is a labelled solid
-  block showing its live value; as its on-screen size grows it cross-fades into
-  its children. No discrete level switch, so no popping.
-- **Camera-relative rendering.** The scale range from computer case to a single
-  gate is ~10⁵; positions are kept in doubles on the CPU and sent to the GPU
-  relative to the camera.
-- **Instancing.** Gates are one instanced mesh, wire segments another. Each
-  instance carries its wire index; the shader samples the wire-level and
-  activity textures. Updating the whole circuit's state is two small texture
-  uploads per frame, independent of gate count.
-- **Custom shaders** for wires (glow, travelling pulses), gates and SDF text;
-  bloom as a post-process.
+Everything that decides what the picture is lives in plain modules, tested
+without a browser (some on the real netlist, loaded from the WASM core);
+only `view.ts` touches WebGL.
+
+| Module | What |
+|---|---|
+| `tree.ts` | the module tree from the netlist; gate paths, as the core names them |
+| `layout.ts` | a rectangle per module, nested like the tree, and a cell per gate. Packed in declaration order on shelves in rows or columns, whichever wastes least; hand arrangements for `cpu` and `cpu/regs` in `floorplan.ts`. Each module's lid stands above everything inside it |
+| `route.ts` | each wire as a trunk east–west and branches north–south one layer up, with vias to its pins, at the height of the lowest module holding all its gates |
+| `lod.ts` | how open each module is, from its size on screen; how much of it is seen; how far the camera has gone into its parts |
+| `camera.ts` | the camera as numbers: projection, rays, fit, zoom about a point, smooth flights (van Wijk and Nuij) |
+| `pick.ts` | what is under the pointer: a closed block, or through open ones down to a gate |
+| `labels.ts` | names, gate counts and register values as glyph instances |
+| `navigator.ts` | pointer, wheel, touch and keys to camera movements |
+| `policy.ts` | which engine the view asks for |
+| `view.ts` | six instanced draw calls and two state textures |
+
+- **Level of detail by projected size**, continuous: a module's lid fades as
+  it grows on screen and its parts show through; nothing pops
+  ([ADR 0014](adr/0014-the-scene-opens-by-size-and-chooses-the-engine.md)).
+- **State by texture.** Every gate, wire segment, lid and letter is an
+  instance carrying the index of its wire and of its module. The state of
+  the whole circuit is one texel per wire (level, activity) and one per
+  module (open, seen, busy, entered). Neither the simulation nor the camera
+  ever rebuilds geometry.
+- **Camera-relative rendering.** Positions are stored as whole numbers and
+  small rests, both exact in 32-bit floats, and so is the eye; the vertex
+  shader subtracts whole from whole and rest from rest. Near and far planes
+  follow the camera's distance.
+- **Order instead of sorting.** Floors (parents first), gates, lids (lowest
+  first, blended), wires (blended; a module's wires run above every lid
+  still visible inside it, and fade once the camera goes into one of its
+  parts), letters. The camera never goes below the floor, so lower is
+  always behind.
+- Not built: bloom, travelling pulses on wires, signed-distance text (a
+  glyph sheet with mipmaps and a sharpening step is used instead).
 
 ## 7. Performance budgets
 
@@ -300,7 +321,9 @@ hierarchical scene are still to come.
   frame with scripted keys, on both engines; pictures a person can check are
   kept as text. A program that animates is also looked at between frames
   (ADR 0013).
-- Frontend: Vitest for pure logic (layout, LOD selection, protocol, URL state);
-  Playwright smoke test (loads, boots, zooms, no console errors).
+- Frontend: Vitest for pure logic (layout, LOD, camera, picking, routing,
+  protocol, URL state), some of it on the real netlist from the WASM core;
+  `pnpm check` drives the built page in a real Chrome (programs, keys, the
+  engine following the view, zooming, links, phone layout, no console errors).
 - Rule: a failing test is fixed at the cause, never weakened; every bug found
   gets a regression test.

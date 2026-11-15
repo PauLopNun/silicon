@@ -55,8 +55,7 @@ Still to do for M4:
 
 1. ~~Wires between blocks clutter what is below them~~ — done: a module's wires fade in with its lid and down to a faint trace once the camera goes into one of its parts; they are drawn after the lids and before the letters, so names stay readable.
 2. ~~Page checks in the repository and in CI~~ — done: `pnpm check` (`web/scripts/check.mjs`), 11 checks on the built page in a real Chrome: every program runs, primes prints, the maze stands still between keys and turns with one, bounce moves, pause and step, the auto engine on load / zoom in / zoom out, click into a block with trail and link, a link to a gate, an engine asked for by link, the phone layout; any console error fails a check. An injected bug (auto always on the gate engine) fails 4 of them.
-3. ADR for the decisions above (LOD by projected size, engine by view,
-   activity encoding), ARCHITECTURE §5–6 brought up to date.
+3. ~~ADR and ARCHITECTURE~~ — done: ADR 0014; ARCHITECTURE §4–6 and §8 describe the scene as built.
 4. Frame-time measurement on the whole design (budget 16.6 ms).
 5. Not verified: Firefox, Safari, a real touch screen.
 
@@ -155,6 +154,8 @@ commits.
 - ADR 0011 — compiled code: one accumulator, frames from `sp`, arguments on
   the stack, everything caller-saved.
 - ADR 0012 — the language looks like C and is not C.
+- ADR 0014 (M4) — modules open by their size on screen; the wire activity is
+  counted in the gate engine; on auto, the view chooses the engine.
 - ADR 0013 — the screen is on view all the time; there is no page flip and
   programs draw in place.
 - Programs travel as source and are built where they run; nothing is
