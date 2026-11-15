@@ -210,6 +210,63 @@ export function fit(rect: Rect, viewport: Viewport, c: Pick<Camera, 'azimuth' | 
   return { ...centred, distance: far };
 }
 
+/**
+ * Like {@link fit}, but keeping the rectangle out from under something that
+ * covers the picture's left and top edges (a panel), `inset` pixels deep:
+ * it is framed in the part of the picture left free, as large as `fit`
+ * would make it there.
+ */
+export function fitBeside(
+  rect: Rect,
+  viewport: Viewport,
+  c: Pick<Camera, 'azimuth' | 'elevation'>,
+  inset: { left: number; top: number },
+  margin = 0.08,
+): Camera {
+  const { left, top } = inset;
+  const free = { width: Math.max(1, viewport.width - left), height: Math.max(1, viewport.height - top) };
+  const camera = fit(rect, free, c, margin);
+  if (left <= 0 && top <= 0) return camera;
+
+  // The camera at a distance, moved so that the rectangle's middle is in
+  // the middle of the free part rather than of the whole picture.
+  const placed = (distance: number): Camera | undefined => {
+    const at = { ...camera, distance };
+    const middle = groundUnder(at, viewport, viewport.width / 2, viewport.height / 2);
+    const target = groundUnder(at, viewport, left + free.width / 2, top + free.height / 2);
+    if (!middle || !target) return undefined;
+    return { ...at, x: at.x + middle.x - target.x, y: at.y + middle.y - target.y };
+  };
+  const corners: Vec3[] = [
+    [rect.x, rect.y, 0],
+    [rect.x + rect.w, rect.y, 0],
+    [rect.x, rect.y + rect.h, 0],
+    [rect.x + rect.w, rect.y + rect.h, 0],
+  ];
+  const fits = (candidate: Camera) =>
+    corners.every((corner) => {
+      const p = project(candidate, viewport, corner);
+      return (
+        p.depth > 0 &&
+        p.x >= left + margin * free.width &&
+        p.x <= left + (1 - margin) * free.width &&
+        p.y >= top + margin * free.height &&
+        p.y <= top + (1 - margin) * free.height
+      );
+    });
+  // Pixels per unit are set by the picture's height (the field of view is
+  // vertical), so on the taller whole picture the camera starts farther
+  // back by the ratio of the heights. Seen off the middle, in perspective,
+  // that is nearly but not quite enough: it steps back until it fits.
+  let distance = (camera.distance * viewport.height) / free.height;
+  for (let i = 0; i < 100; i++) {
+    const candidate = placed(distance);
+    if (candidate && fits(candidate)) return candidate;
+    distance *= 1.01;
+  }
+  return camera;
+}
+
 /** The difference `to - from` between two angles, the short way round. */
 function turn(from: number, to: number): number {
   const d = (to - from) % (2 * Math.PI);

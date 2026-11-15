@@ -66,8 +66,9 @@ Chosen first: **explain mode**. Done, on `main`:
   fact stated (nine NANDs to a full adder, eight flip-flops to a
   register, 127 in all…); a page check walks the whole tour.
 
-**M5 is done** but for one known flaw: the tour's panel can cover the top of
-what the camera frames.
+**M5 is done.** The tour frames each place beside or below its panel,
+whichever leaves more of the picture free (`fitBeside` in `camera.ts`, whose
+test caught a corner half a pixel outside the free part in perspective).
 
 ## M4 — where it stands (2026-11-15)
 

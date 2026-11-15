@@ -16,6 +16,7 @@ import {
   approach,
   clampCamera,
   fit,
+  fitBeside,
   flight,
   groundUnder,
   orbit,
@@ -80,8 +81,14 @@ export class Navigator {
 
   /** The camera that shows a rectangle of the plan, at the angles of the present goal. */
   framing(rect: Rect, margin = 0.1): Camera {
-    return clampCamera(fit(rect, this.view.viewport, this.goal, margin), this.limits());
+    return clampCamera(fitBeside(rect, this.view.viewport, this.goal, this.inset, margin), this.limits());
   }
+
+  /**
+   * Pixels of the picture covered by something over it (a panel), on the
+   * left and at the top. Framing keeps what it frames out from under them.
+   */
+  inset = { left: 0, top: 0 };
 
   /** The camera that shows everything. */
   home(): Camera {

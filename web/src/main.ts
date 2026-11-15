@@ -675,6 +675,16 @@ function enterLesson(index: number): void {
   if (step.view !== showing) setShowing(step.view);
   const current = active();
   if (current) {
+    // Frame what the step is about out from under the panel: beside it or
+    // below it, whichever leaves the larger part of the picture free.
+    const panel = el('lesson').getBoundingClientRect();
+    const canvas = current.view.canvas.getBoundingClientRect();
+    const beside = panel.right - canvas.left;
+    const below = panel.bottom - canvas.top;
+    const besideArea = (canvas.width - beside) * canvas.height;
+    const belowArea = canvas.width * (canvas.height - below);
+    current.nav.inset = besideArea > belowArea ? { left: beside, top: 0 } : { left: 0, top: below };
+    if (scene && current !== scene) scene.nav.inset = { left: 0, top: 0 };
     const place = resolvePath(current.view.tree, step.at);
     if (place && place.gate >= 0) current.nav.flyToGate(place.gate);
     else if (place && place.module > 0) current.nav.flyToModule(place.module);
@@ -709,6 +719,7 @@ function closeLesson(): void {
   lessonAt = -1;
   el('lesson').hidden = true;
   delete document.body.dataset.lesson;
+  for (const each of [scene, ramScene]) if (each) each.nav.inset = { left: 0, top: 0 };
 }
 
 el('learn').addEventListener('click', () => enterLesson(lessonAt >= 0 ? lessonAt : 0));

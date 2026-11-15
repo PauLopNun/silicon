@@ -5,6 +5,7 @@ import {
   clampCamera,
   eyeOf,
   fit,
+  fitBeside,
   flight,
   focalLength,
   FOV,
@@ -212,6 +213,55 @@ describe('fit', () => {
         // The corner that reaches furthest is right at the margin.
         expect(reach).toBeLessThanOrEqual(0.8 + 1e-6);
         expect(reach).toBeGreaterThan(0.8 - 1e-3);
+      }
+    }
+  });
+});
+
+describe('fitBeside', () => {
+  const rect = { x: 100, y: 40, w: 60, h: 20 };
+  const corners: Vec3[] = [
+    [100, 40, 0],
+    [160, 40, 0],
+    [100, 60, 0],
+    [160, 60, 0],
+  ];
+
+  it('is fit when nothing covers the picture', () => {
+    const angles = { azimuth: 0.3, elevation: 1 };
+    expect(fitBeside(rect, viewport, angles, { left: 0, top: 0 })).toEqual(fit(rect, viewport, angles));
+  });
+
+  it('keeps the rectangle in the free part, with the margin, out from under the panel', () => {
+    for (const inset of [
+      { left: 440, top: 0 },
+      { left: 0, top: 300 },
+      { left: 300, top: 200 },
+    ]) {
+      for (const angles of [
+        { azimuth: 0, elevation: Math.PI / 2 },
+        { azimuth: 0, elevation: 1 },
+        { azimuth: 0.7, elevation: 0.6 },
+      ]) {
+        const c = fitBeside(rect, viewport, angles, inset, 0.1);
+        const free = { width: viewport.width - inset.left, height: viewport.height - inset.top };
+        const points = corners.map((p) => project(c, viewport, p));
+        for (const p of points) {
+          expect(p.x).toBeGreaterThanOrEqual(inset.left - 1e-6);
+          expect(p.y).toBeGreaterThanOrEqual(inset.top - 1e-6);
+          expect(p.x).toBeLessThanOrEqual(viewport.width + 1e-6);
+          expect(p.y).toBeLessThanOrEqual(viewport.height + 1e-6);
+        }
+        // And it fills the free part: some side comes close to the margin.
+        // (Not exactly to it: seen off the middle of the picture, in
+        // perspective, it is a few per cent larger or smaller than fit makes
+        // it in a picture of the free size alone.)
+        const reach = Math.max(
+          ...points.map((p) => Math.abs(p.x - (inset.left + free.width / 2)) / (free.width / 2)),
+          ...points.map((p) => Math.abs(p.y - (inset.top + free.height / 2)) / (free.height / 2)),
+        );
+        expect(reach).toBeGreaterThan(0.7);
+        expect(reach).toBeLessThanOrEqual(1);
       }
     }
   });
