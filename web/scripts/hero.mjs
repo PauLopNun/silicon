@@ -10,8 +10,9 @@ import { launch, serve } from './browser.mjs';
 
 const out = process.argv[2] ?? 'zoom.png';
 const site = await serve(new URL('../dist/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const browser = await launch();
-const page = await browser.page(site.url, { width: 1000, height: 600 });
+const browser = await launch({ gpu: true });
+// (The glow stays on however slowly this machine draws: the animation is of the page as it is meant to look.)
+const page = await browser.page(`${site.url}?glow=on`, { width: 1000, height: 600 });
 const frames = [];
 // Smaller than the window: the README shows it smaller anyway, and the file
 // stays a few megabytes.

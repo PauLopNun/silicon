@@ -82,10 +82,26 @@ person could see).
   altogether as they grow wider than a few pixels.
 - Letters carry a dark shadow, taken from a smaller copy of the glyph sheet,
   so that a name stays readable where bright wires pass under it.
-- A wire thinner than the pixel-wide ribbon drawn for it is drawn as
-  covering only a part of that ribbon.
+- A wire thinner than the pixel-wide ribbon drawn for it covers only its
+  share of that ribbon, and its light likewise (the shader's colour is
+  multiplied by the cover, and blended as such). From afar, where a
+  thousand wires cross the picture, they are faint traces and what is seen
+  is what moves along them; from close they are solid. Drawn at full
+  strength, the whole CPU was a tangle that hid its own blocks, worst on a
+  phone.
 - The scene darkens towards its top and bottom edges under the words that
   lie over it there.
+
+### 6. The glow goes where it is too heavy
+The page watches the time between its pictures (`pace.ts`). If half of 45
+in a row take more than 40 ms, the glow is turned off for good and the page
+says so; a gap of more than 400 ms is the page having had nothing to draw,
+and is not counted. A link settles it either way: `?glow=off`, `?glow=on`.
+
+Rejected: asking the graphics card how long it took (the timer query exists
+in Chrome only, and what matters is the pace the person sees, whatever the
+cause); lowering the resolution first (a second thing to tune, for a
+decoration).
 
 ## Consequences
 - Every light can be traced to a number from the simulation: a level, an

@@ -55,6 +55,30 @@ Done (2026-11-17): **the look of the scene**, ADR 0016.
   graphics card a picture with the glow, 0.2 ms of the main thread.
 - Tests: Rust 297, Vitest 144, page checks 17; fmt, clippy, typecheck clean.
 
+Done after that, the same day:
+
+- **The whole CPU from afar is readable.** A wire thinner than the
+  pixel-wide ribbon drawn for it now covers only its share of that ribbon,
+  and its light likewise: the thousand wires between the blocks are faint
+  traces with pulses moving along them, and the blocks and their names are
+  what is seen. From close nothing changes. It matters most on a phone,
+  where the first picture was an orange tangle.
+- **The glow turns itself off where it is heavy** (`scene/pace.ts`, tested):
+  if half of 45 pictures in a row take over 40 ms, the scene is drawn
+  without it from then on and the page says so. `?glow=on` keeps it,
+  `?glow=off` never starts it. Checked by slowing the page's processor
+  forty times in Chrome: off after a few seconds; at full speed it stays on.
+- **Other browsers, driven for real** (Playwright with its Firefox and
+  WebKit, installed outside the repository): eleven steps each on Firefox,
+  WebKit, and WebKit as an iPhone 13 with touch. Every program runs, keys
+  move the game, a link leads to a gate, the wheel zooms, a click or a tap
+  flies into a block, a step is played back, a gate is broken and mended,
+  the memory writes and reads, the tour walks to its end, nothing is wider
+  than the window. All pass, with the glow, and nothing on the console.
+  Not the same as Safari on a real iPhone: see the limitations.
+- CI passed on Linux for the commit before this one, with the two new
+  page checks in software rendering.
+
 What follows is the note of 2026-11-15, kept for the record of what was
 tried:
 
@@ -310,6 +334,8 @@ Each has a regression test.
 
 ## Known limitations
 
+As of 2026-11-17.
+
 - **Compiled code is naive.** Every use of a variable is a load from the
   stack; there is no register allocation. Enough for the game's logic (3%
   of a frame), not for inner loops, which is what `asm { … }` is for.
@@ -319,29 +345,18 @@ Each has a regression test.
   moves but the player. 256 levels, then they repeat.
 - On the gate engine a level change takes about three seconds (the shutter
   is paced by counting) and digging a maze a third of a second.
-- **The page check is still an ad-hoc script outside the repository.** It
-  has now found a class of bug the test suite could not see. It belongs in
-  the repository and in CI (Playwright, M4).
 - The page has no source or disassembly view. The toolchain already
   produces the map from addresses to source lines (`Assembly::lines`).
 - State reaches the page by copying (ADR 0004's fallback path); the
-  `SharedArrayBuffer` path is not implemented.
-- No wire-activity buffer: the gate view shows the level at the instant of
-  each frame, which at 270 kHz is a sample, not everything that happened.
-- The gate view is a flat grid; its labels overlap on a phone. No zoom, no
-  wires drawn, no hierarchy: M4.
-- Engine switching is manual. Switching by camera distance arrives with M4.
-
-## Next: M4
-
-1. Prototype the hierarchical scene and the LOD cross-fade on a synthetic
-   module tree before anything else (risk 1).
-2. Layout from the module tree: deterministic packing, hints for the top
-   levels. Camera-relative rendering.
-3. Wires as an instanced mesh; the wire-activity buffer in the worker.
-4. Engine switching by camera distance.
-5. Playwright: the checks of the ad-hoc script (loads, every program runs,
-   the screen is still while nothing is held, no console errors), in CI.
+  `SharedArrayBuffer` path is not implemented. The copy is about 25 kB a
+  frame and has never shown up in a measurement.
+- The wires are a drawing of what is joined to what, not a routed chip:
+  wires of the same layer cross and overlap (`route.ts`).
+- From afar on `auto`, the wires show a sample of 256 clock cycles of every
+  frame, not all of them (ADR 0016); the page says so.
+- **Not verified:** Safari itself on a Mac or an iPhone, and a real touch
+  screen (a pinch with two fingers). Firefox and WebKit were driven on
+  Windows, with a touch screen emulated (see M6).
 
 ## Earlier milestones
 
@@ -404,7 +419,7 @@ Each has a regression test.
    before polishing anything. The state path (instancing + wire texture) is
    already proven on the real CPU.
 2. **What only a browser shows.** Twice the page had faults no test saw (M3: flicker, a squeezed panel). `pnpm check` now runs in CI; a fault it does not look for still needs `look.mjs` and an eye.
-3. **Cross-browser WASM/worker behaviour** (Safari, Firefox). Untested.
+3. **Cross-browser WASM/worker behaviour.** Firefox and WebKit pass when driven by a script (M6); Safari on Apple hardware is still untried.
 4. **Engine switch correctness.** Covered by the no-hidden-state test,
    cycle-level lockstep on random programs and on every real one,
    swap-at-every-cycle and switching mid-game. Residual risk is in the

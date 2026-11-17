@@ -16,7 +16,7 @@ if (!directory) {
 }
 mkdirSync(directory, { recursive: true });
 const site = await serve(new URL('../dist/', import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1'));
-const browser = await launch();
+const browser = await launch({ gpu: true });
 try {
   let n = 0;
   for (const spec of queries.length > 0 ? queries : ['']) {

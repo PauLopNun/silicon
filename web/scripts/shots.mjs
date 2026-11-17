@@ -12,8 +12,8 @@ const text = (id) => `document.getElementById(${JSON.stringify(id)}).textContent
 const press = (page, selector) => page.evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`);
 
 /** Open the page at a link, do something there, and save a picture of it. */
-async function shot(name, query, body) {
-  const page = await browser.page(site.url + query, { width: 1280, height: 800 });
+async function shot(name, query, body, size = { width: 1280, height: 800 }) {
+  const page = await browser.page(site.url + query, size);
   try {
     await page.until('document.body?.dataset.ready', 30000);
     await page.sleep(1200);
@@ -75,6 +75,20 @@ try {
     await page.until(`'replay' in document.body.dataset`, 4000);
     await page.sleep(350);
   });
+
+  // The picture a link to the repository is shown with (Settings → Social
+  // preview), at the size GitHub asks for: the game, and the CPU it runs on.
+  await shot(
+    'social.png',
+    '?glow=on',
+    async (page) => {
+      await page.key('ArrowUp');
+      await page.sleep(700);
+      await page.key('ArrowUp', 'ArrowUp', false);
+      await page.sleep(1200);
+    },
+    { width: 1280, height: 640 },
+  );
 } finally {
   await browser.close();
   site.close();

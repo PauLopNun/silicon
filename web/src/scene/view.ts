@@ -474,6 +474,8 @@ const WIRE_FRAGMENT = /* glsl */ `
   varying float vPhase;
   varying float vWide;
   const vec3 HOT = vec3(1.0, 0.80, 0.46);
+  // The least a wire covers of the ribbon drawn for it, however thin it is.
+  const float COVER_LEAST = 0.1;
   void main() {
     bool driven = vAlong.x >= 0.0;
     // While a step is played back: gate delays since the turn of the gate
@@ -487,8 +489,6 @@ const WIRE_FRAGMENT = /* glsl */ `
     // A wire that has been switching is a little brighter all along,
     // whatever its level this instant.
     if (reached) colour += vec3(0.95, 0.50, 0.12) * vBusy * 0.3;
-    // One too thin to be seen properly sinks towards the floor instead of sparkling.
-    colour = mix(vec3(0.05, 0.07, 0.11), colour, mix(0.45, 1.0, vCover));
 
     // Light given off, brighter than the picture's white so that it glows.
     float light = 0.0;
@@ -512,9 +512,14 @@ const WIRE_FRAGMENT = /* glsl */ `
     }
     // A wire seen from close covers many pixels, and so would its light: it
     // is given off per length of wire, not per pixel of picture.
-    colour += HOT * light * mix(0.5, 1.0, vCover) * mix(1.0, 0.24, smoothstep(1.5, 9.0, vWide));
-    // A wire thinner than the pixel-wide ribbon drawn for it covers a part of it only.
-    gl_FragColor = vec4(stale(colour), vAlpha * mix(0.55, 1.0, vCover));
+    vec3 given = HOT * light * mix(1.0, 0.24, smoothstep(1.5, 9.0, vWide));
+    // A wire thinner than the pixel-wide ribbon drawn for it covers only a
+    // part of that ribbon: its colour is laid on by that much, and its
+    // light, a little more generously, likewise. So from afar, where a
+    // thousand wires cross the picture, they are faint traces and what is
+    // seen is what moves along them; from close they are solid.
+    float cover = vAlpha * max(vCover, COVER_LEAST);
+    gl_FragColor = vec4(stale(colour * cover + given * vAlpha * mix(0.3, 1.0, vCover)), cover);
   }
 `;
 
@@ -920,7 +925,13 @@ export class SceneView {
       // readable where a wire crosses a name.
       add(
         geometry,
-        material(WIRE_VERTEX, WIRE_FRAGMENT, { side: THREE.DoubleSide, transparent: true, depthWrite: false }),
+        // (The shader gives colour already multiplied by how much of the pixel it covers.)
+        material(WIRE_VERTEX, WIRE_FRAGMENT, {
+          side: THREE.DoubleSide,
+          transparent: true,
+          premultipliedAlpha: true,
+          depthWrite: false,
+        }),
         3.5,
       );
     }
@@ -965,9 +976,15 @@ export class SceneView {
     this.mark.visible = false;
   }
 
+  /**
+   * Draw what gives off light with a glow around it, where the graphics
+   * driver can. Turned off, the scene is drawn straight to the screen.
+   */
+  glow = true;
+
   /** Is what gives off light drawn with a glow around it? */
   get glows(): boolean {
-    return this.bloom !== undefined;
+    return this.bloom !== undefined && this.glow;
   }
 
   /** Is something in the picture moving by itself, so that it must be drawn again? */
@@ -1146,11 +1163,12 @@ export class SceneView {
     }
 
     const timed = this.beginTiming();
-    if (this.bloom) {
+    if (this.bloom && this.glow) {
       this.renderer.setRenderTarget(this.bloom.scene);
       this.renderer.render(this.scene, this.eye);
       this.bloom.render(GLOW);
     } else {
+      this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.eye);
     }
     if (timed) this.endTiming();

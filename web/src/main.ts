@@ -28,6 +28,7 @@ import { gateCountText } from './scene/labels';
 import { GATE_TOP, gateRect, rectOf } from './scene/layout';
 import { focusModule } from './scene/lod';
 import { Navigator } from './scene/navigator';
+import { Pace } from './scene/pace';
 import type { Hit } from './scene/pick';
 import { engineFor, engineNote, parseEngineMode, samplingFor, type EngineMode } from './scene/policy';
 import { gatePath, moduleAt, resolvePath } from './scene/tree';
@@ -75,10 +76,14 @@ interface Scene {
   levels: () => Uint8Array | undefined;
 }
 /**
- * What gives off light is drawn with a glow around it, unless the link says
- * not to (`?glow=off`, for a graphics card that finds it heavy).
+ * What gives off light is drawn with a glow around it. A graphics card that
+ * finds it heavy is spared it: the page watches the pace of its pictures
+ * and turns the glow off if they come slowly. A link can settle it either
+ * way: `?glow=off`, `?glow=on`.
  */
 const GLOW = link.get('glow') !== 'off';
+const pace = link.get('glow') === 'on' || !GLOW ? undefined : new Pace();
+document.body.dataset.glow = GLOW ? 'on' : 'off';
 /** The CPU. */
 let scene: Scene | undefined;
 /** The memory made of gates. */
@@ -375,6 +380,13 @@ function frame(now: number): void {
       // For the page checks: whether a step is being played back.
       if (current.view.replaying) document.body.dataset.replay = '';
       else delete document.body.dataset.replay;
+      if (current.view.glows && pace?.drew(now)) {
+        // Too slow with the glow: without it from here on, and say so.
+        for (const each of [scene, ramScene]) if (each) each.view.glow = false;
+        document.body.dataset.glow = 'off';
+        el('status').textContent += ' · glow off: the pictures were coming slowly (?glow=on keeps it)';
+        stale = true;
+      }
     }
   }
   requestAnimationFrame(frame);

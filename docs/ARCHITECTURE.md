@@ -273,6 +273,7 @@ only `view.ts` touches WebGL.
 | `policy.ts` | which engine the view asks for |
 | `replay.ts` | where the playback of a single step begins and ends, in logic depth |
 | `bloom.ts` | the glow: whatever a shader drew brighter than white, blurred into a halo |
+| `pace.ts` | whether pictures are coming too slowly for the glow |
 | `view.ts` | ten draw calls and two state textures |
 
 - **Level of detail by projected size**, continuous: a module's lid fades as

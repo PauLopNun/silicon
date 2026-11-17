@@ -115,7 +115,7 @@ programs/*.c, *.asm ──cc──► assembly ──asm──► ROM        (cr
 | The maze game | 45 frames/s at the nominal 4 MHz; 2–3 frames/s on the gates |
 | The game's ROM | 4.8 KiB of 32 |
 | A picture of the scene | 0.2 ms of main-thread time; 2.7 ms of the graphics card's with the glow (RTX 5060 Ti, 1280×800) |
-| Tests | 297 in Rust, 144 in Vitest, 17 checks of the built page in a real Chrome |
+| Tests | 297 in Rust, 149 in Vitest, 17 checks of the built page in a real Chrome |
 
 ## Run it
 
@@ -129,7 +129,8 @@ pnpm dev                 # builds the WebAssembly core, starts the dev server
 
 Then pick a program, use the arrow keys, and scroll into the CPU. Links can
 say where to look: `?at=cpu/alu/adder8/fa3`, `?program=bounce&engine=gate`,
-`?view=ram`.
+`?view=ram`. The glow turns itself off on a graphics card that finds it
+heavy; `?glow=off` and `?glow=on` settle it by hand.
 
 ```sh
 cargo test --workspace   # the hardware, both engines, the toolchain, the programs
