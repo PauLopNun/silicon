@@ -10,13 +10,21 @@ Read this and `CLAUDE.md` at the start of every session.
 | M1 — ISA and hardware design | **done** (2026-11-13) |
 | M2 — Simulation engines | **done** (2026-11-13) |
 | M3 — Toolchain and programs | **done** (2026-11-14) |
-| M4 — 3D visualization | **done** (2026-11-17), but for browsers other than Chrome: see the launch checklist |
+| M4 — 3D visualization | **done** (2026-11-17) |
 | M5 — Learning tools | **done** (2026-11-15) |
-| M6 — Polish and launch | **in progress** |
+| M6 — Polish and launch | **done** (2026-11-17) |
 
-Launched on 2026-11-17: the repository is public and the live demo is at
-<https://paulopnun.github.io/silicon/>, published from `main` by the Pages
-workflow after the page checks pass.
+**The project is finished.** Launched on 2026-11-17: the repository is
+public and the live demo is at <https://paulopnun.github.io/silicon/>,
+published from `main` by the Pages workflow after the page checks pass.
+The final build passes everything here, in CI on Linux, and when driven in
+Firefox, WebKit and WebKit as a phone with touch.
+
+Two things are left, and only a person can do them:
+
+1. Upload `docs/media/social.png` in Settings → Social preview.
+2. Try the demo on a real phone (a pinch with two fingers) and in Safari on
+   a Mac. If something is wrong there, it is a bug to fix; nothing known is.
 
 ## M6 — where it stands (2026-11-17)
 
