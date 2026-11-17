@@ -2,6 +2,8 @@
 
 **A 3D game running on a CPU you can zoom into, down to every single NAND gate.**
 
+**[Try it in your browser →](https://paulopnun.github.io/silicon/)** Nothing to install: arrow keys to play, scroll to fly into the CPU.
+
 ![From the whole CPU into the ALU, its 8-bit adder, and the nine NAND gates of one full adder, all switching live while the maze game runs on them](docs/media/zoom.png)
 
 Silicon is an 8-bit computer designed from scratch out of nothing but **2,603

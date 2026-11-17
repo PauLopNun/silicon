@@ -14,7 +14,9 @@ Read this and `CLAUDE.md` at the start of every session.
 | M5 — Learning tools | **done** (2026-11-15) |
 | M6 — Polish and launch | **in progress** |
 
-The look of the scene is committed on `main` (2026-11-17), **not pushed**.
+Launched on 2026-11-17: the repository is public and the live demo is at
+<https://paulopnun.github.io/silicon/>, published from `main` by the Pages
+workflow after the page checks pass.
 
 ## M6 — where it stands (2026-11-17)
 
@@ -110,9 +112,15 @@ a person:
 2. ~~Measure the graphics card's share of a frame~~: done with a timer
    query, above. Worth a look by eye on a laptop's integrated graphics;
    `?glow=off` is the way out if it is heavy there.
-3. Make the repository public; turn Pages on and run the Pages workflow;
-   add the push trigger; put the demo's link at the top of the README.
-4. Repository description, topics and social preview image.
+3. ~~Make the repository public; turn Pages on and run the Pages workflow;
+   add the push trigger; put the demo's link at the top of the README~~:
+   done on 2026-11-17. The history was first rewritten to carry the
+   author's GitHub address instead of a personal one, and pushed to a new
+   repository of the same name, so that the public one never held the
+   other; the old repository is kept, private, under another name.
+4. ~~Repository description and topics~~: done. The social preview image
+   is `docs/media/social.png` (made by `shots.mjs`); GitHub has no way to
+   set it but by hand: Settings → Social preview → upload it.
 
 ## M5 — where it stands (2026-11-15)
 
