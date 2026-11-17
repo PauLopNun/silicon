@@ -339,6 +339,57 @@ await check('a phone-sized window has everything and nothing sideways', '', asyn
   for (const [id, w, h] of sizes) expect(w > 100 && h > 40, `#${id} is ${w}×${h}`);
 }, { width: 390, height: 780, mobile: true });
 
+await check('on every size of window the screen and the keys are in sight, and the scene has room', '', async (page) => {
+  // Phones upright and sideways, a small one and a large one, and a tablet
+  // upright. On a small phone and on one held sideways the keys were once
+  // below the fold of the panel, and on the tablet the scene was a sliver.
+  const sizes = [[360, 640], [390, 844], [412, 915], [844, 390], [667, 375], [768, 1024], [1024, 768], [1280, 800]];
+  for (const [width, height] of sizes) {
+    await page.send('Emulation.setDeviceMetricsOverride', { width, height, deviceScaleFactor: 1, mobile: width < 1024 });
+    await page.sleep(350);
+    const seen = await page.evaluate(`(() => {
+      const box = (el) => { const r = el.getBoundingClientRect(); return { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width, height: r.height }; };
+      const side = box(document.getElementById('side'));
+      const inSight = (el) => { const r = box(el); return r.width > 0 && r.left >= -0.5 && r.top >= side.top - 0.5 && r.right <= innerWidth + 0.5 && r.bottom <= Math.min(side.bottom, innerHeight) + 0.5; };
+      return {
+        sideways: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        screen: inSight(document.getElementById('screen')),
+        screenWidth: box(document.getElementById('screen')).width,
+        keys: [...document.querySelectorAll('#keys button')].map((b) => [b.getAttribute('aria-label'), inSight(b), box(b).width]),
+        scene: box(document.getElementById('scene')),
+        w: innerWidth,
+        h: innerHeight,
+      };
+    })()`);
+    const at = `at ${width}×${height}`;
+    expect(seen.sideways <= 0, `${at} the page is ${seen.sideways} px wider than the window`);
+    expect(seen.screen && seen.screenWidth >= 200, `${at} the computer's screen is not wholly in sight (${Math.round(seen.screenWidth)} px wide)`);
+    expect(seen.keys.length === 6, `${at} there are ${seen.keys.length} keys`);
+    for (const [name, inSight, size] of seen.keys) {
+      expect(inSight, `${at} the ${name} key is out of sight`);
+      expect(size >= 40, `${at} the ${name} key is ${size} px wide, small for a thumb`);
+    }
+    const share = (seen.scene.width * seen.scene.height) / (seen.w * seen.h);
+    expect(share >= 0.4, `${at} the scene has ${Math.round(share * 100)}% of the window`);
+  }
+});
+
+await check('out of sight the clock stands still, and goes on when the page is seen again', '', async (page) => {
+  const cycles = `Number(${text('cycles')}.replace(/\\D/g, ''))`;
+  const hide = (hidden) =>
+    page.evaluate(`(() => { Object.defineProperty(document, 'hidden', { value: ${hidden}, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); })()`);
+  await hide(true);
+  await page.sleep(400);
+  const stopped = await page.evaluate(cycles);
+  expect(Number.isFinite(stopped) && stopped > 0, `the count of cycles reads ${stopped}`);
+  await page.sleep(600);
+  expect((await page.evaluate(cycles)) === stopped, 'the clock ran with the page out of sight');
+  await hide(false);
+  await page.until(`${cycles} > ${stopped}`, 5000, 'the clock to go on');
+  // And at its own rate, not making up for the time out of sight.
+  await page.until(`${text('speed')}.endsWith('MHz')`, 5000, 'a clock in megahertz');
+});
+
 await browser.close();
 site.close();
 console.log(failed === 0 ? `\nall ${results.length} page checks passed` : `\n${failed} of ${results.length} page checks failed`);

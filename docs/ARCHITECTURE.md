@@ -274,6 +274,7 @@ only `view.ts` touches WebGL.
 | `replay.ts` | where the playback of a single step begins and ends, in logic depth |
 | `bloom.ts` | the glow: whatever a shader drew brighter than white, blurred into a halo |
 | `pace.ts` | whether pictures are coming too slowly for the glow |
+| `pixels.ts` | how many device pixels the scene is drawn with: the screen's density, held to about three million pixels |
 | `view.ts` | ten draw calls and two state textures |
 
 - **Level of detail by projected size**, continuous: a module's lid fades as

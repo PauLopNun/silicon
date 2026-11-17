@@ -20,11 +20,38 @@ published from `main` by the Pages workflow after the page checks pass.
 The final build passes everything here, in CI on Linux, and when driven in
 Firefox, WebKit and WebKit as a phone with touch.
 
-Two things are left, and only a person can do them:
+The social preview is uploaded and the demo was tried on a real phone by
+its author, where it works. Left for a person: Safari on a Mac.
 
-1. Upload `docs/media/social.png` in Settings → Social preview.
-2. Try the demo on a real phone (a pinch with two fingers) and in Safari on
-   a Mac. If something is wrong there, it is a bug to fix; nothing known is.
+### After the launch (2026-11-17): every size of window, and the page's cost
+
+- **The layout at every size.** On a small phone (360×640) and on a phone
+  held sideways the computer's keys were below the fold of the panel, and
+  on a tablet held upright the scene was a sliver beside a half-empty
+  panel. Now: stacked for a phone or an upright tablet, with the screen
+  and the keys always in sight above the scene and the rest of the panel
+  scrolled to; the scene keeps at least 46% of the height; the keys are a
+  row where height is short and a cross where there is room; a phone held
+  sideways keeps two columns with the screen made to fit the height. A
+  page check walks eight sizes of window and fails if the screen or a key
+  is out of sight, if a key is under 40 px, or if the scene has under 40%
+  of the window.
+- **Loading, measured on the live demo with Lighthouse:** performance 93 on
+  a throttled phone (first paint 0.8 s, largest 1.7 s, 290 ms of blocking)
+  and 100 on a desktop; 326 KiB over the wire in four requests. The one
+  thing it found to mend: the keys jumped twice as the programs and their
+  description arrived (layout shift 0.06). Room is now kept for both.
+- **The scene's pixels are held to about three million** (`scene/pixels.ts`,
+  tested): on a large dense screen the picture, four samples a pixel in
+  16-bit floats, would have been hundreds of megabytes. Density is given up
+  down to one device pixel per CSS pixel, never below. The scene also
+  follows a change of density now (a window moved to another screen).
+- **Out of sight, the clock stands still.** The gate engine runs as fast as
+  it can, which is a whole processor core; with the tab in the background
+  nobody was looking. The page now tells the worker when it is hidden, and
+  the computer goes on from where it was when it is seen again, without
+  making up for the time. A page check covers it.
+- Tests: Rust 297, Vitest 154, page checks 19.
 
 ## M6 — where it stands (2026-11-17)
 

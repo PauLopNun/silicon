@@ -25,6 +25,9 @@
       #engine[data-engine="fast"] { border-color: var(--dim); color: var(--ink); }
       #screen { width: 100%; aspect-ratio: 2 / 1; image-rendering: pixelated; display: block;
         border: 1px solid var(--line); border-radius: 4px; background: #000; }
+      /* Room is kept for what arrives with the simulation (the programs, the words about the one running), so that nothing under them jumps when it does. */
+      #programs { min-height: 31px; }
+      #about { min-height: 4.35em; }
       #programs button { min-width: 0; padding: 5px 11px; }
       #meters { display: flex; flex-wrap: wrap; gap: 4px 16px; }
       #keys { display: flex; justify-content: space-between; align-items: flex-end; }
@@ -118,21 +121,51 @@
       #gestures { color: var(--dim); text-shadow: 0 0 6px var(--bg); }
       /* A middling window: the trail of blocks needs the room more than the legend does. */
       @media (max-width: 1240px) { #legend { display: none; } }
-      @media (max-width: 760px) {
-        body { grid-template-columns: 1fr; grid-template-rows: auto minmax(320px, 1fr); }
-        #side { border-right: 0; border-bottom: 1px solid var(--line); }
-        /* Keys for thumbs: larger, and the arrows in a cross. */
-        #keys button { width: 52px; height: 52px; }
-        #pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px);
-          grid-template-areas: ". up ." "left down right"; }
-        #pad [data-key="ArrowUp"] { grid-area: up; }
-        #pad [data-key="ArrowLeft"] { grid-area: left; }
-        #pad [data-key="ArrowDown"] { grid-area: down; }
-        #pad [data-key="ArrowRight"] { grid-area: right; }
+      /*
+       * Stacked, the computer above the scene: a phone, or a tablet held
+       * upright. What the game needs (its screen and its keys) comes first
+       * and is always in sight; the rest of the panel is scrolled to. The
+       * scene keeps a little under half of the height, whatever the panel holds.
+       */
+      @media (orientation: portrait) and (max-width: 1000px), (max-width: 760px) and (min-height: 521px) {
+        body { grid-template-columns: 1fr; grid-template-rows: minmax(0, auto) minmax(46%, 1fr); }
+        #side { border-right: 0; border-bottom: 1px solid var(--line); padding: 12px; gap: 10px; }
+        #side > header, #programs, #screen, #keys { order: -1; }
+        /* On a wide panel the screen would take all the height there is. */
+        #screen, #keys { width: 100%; max-width: 520px; align-self: center; }
+        #programs { flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+        #programs button { flex: none; padding: 5px 9px; }
+        #keys button { width: 48px; height: 48px; }
         /* Little room over the scene: only where the camera is, and what is pointed at. */
         #legend, #gestures { display: none; }
         #engine-note { font-size: 11px; }
         #main::after { height: 84px; }
+        /* With height to spare, keys for thumbs: larger, and the arrows in a cross. */
+        @media (min-height: 760px) {
+          #keys button { width: 52px; height: 52px; }
+          #pad { display: grid; grid-template-columns: repeat(3, 52px); grid-template-rows: repeat(2, 52px);
+            grid-template-areas: ". up ." "left down right"; }
+          #pad [data-key="ArrowUp"] { grid-area: up; }
+          #pad [data-key="ArrowLeft"] { grid-area: left; }
+          #pad [data-key="ArrowDown"] { grid-area: down; }
+          #pad [data-key="ArrowRight"] { grid-area: right; }
+        }
+      }
+      /*
+       * A phone held sideways: side by side still, but there is so little
+       * height that the screen is made to fit it, with its keys under it.
+       */
+      @media (orientation: landscape) and (max-height: 520px) {
+        body { grid-template-columns: clamp(250px, 40%, 340px) 1fr; }
+        #side { padding: 10px 12px; gap: 8px; }
+        #side > header, #programs, #screen, #keys { order: -1; }
+        #screen { width: min(100%, 76vh); align-self: center; }
+        #programs { flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; }
+        #programs button { flex: none; padding: 4px 8px; }
+        #keys button { width: 40px; height: 40px; }
+        #legend, #gestures { display: none; }
+        #engine-note { font-size: 11px; }
+        #main::after { height: 70px; }
       }
     </style>
   </head>

@@ -43,6 +43,8 @@ async function main(): Promise<void> {
   let boot = 0;
 
   let running = true;
+  /** The page can be seen; while it cannot, the clock stands still. */
+  let visible = true;
   let dirty = true;
   /**
    * Clock cycles of every frame to compute on the gates while the fast
@@ -199,6 +201,11 @@ async function main(): Promise<void> {
         boot += 1;
         pacer.clear();
         break;
+      case 'visible':
+        visible = command.visible;
+        // No catching up on the time spent out of sight.
+        pacer.clear();
+        break;
       case 'program':
         if (programs.some((p) => p.name === command.name)) load(command.name);
         break;
@@ -215,7 +222,7 @@ async function main(): Promise<void> {
   const channel = new MessageChannel();
   const tick = () => {
     const now = performance.now();
-    const due = running ? pacer.advance(now - lastTick) : 0;
+    const due = running && visible ? pacer.advance(now - lastTick) : 0;
     lastTick = now;
 
     // With a sample to take for the gates, a message is decided on before the
@@ -248,7 +255,7 @@ async function main(): Promise<void> {
     if (dirty && publishing) publish(sample);
     // Keep going at once if there was work; otherwise sleep a little.
     if (ran + sample > 0) channel.port2.postMessage(0);
-    else setTimeout(tick, 4);
+    else setTimeout(tick, visible ? 4 : 100);
   };
   channel.port1.onmessage = tick;
   tick();

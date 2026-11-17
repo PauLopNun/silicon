@@ -117,7 +117,8 @@ programs/*.c, *.asm ──cc──► assembly ──asm──► ROM        (cr
 | The maze game | 45 frames/s at the nominal 4 MHz; 2–3 frames/s on the gates |
 | The game's ROM | 4.8 KiB of 32 |
 | A picture of the scene | 0.2 ms of main-thread time; 2.7 ms of the graphics card's with the glow (RTX 5060 Ti, 1280×800) |
-| Tests | 297 in Rust, 149 in Vitest, 17 checks of the built page in a real Chrome |
+| Loading the page | 326 KiB over the wire; Lighthouse performance 93 on a throttled phone, 100 on a desktop |
+| Tests | 297 in Rust, 154 in Vitest, 19 checks of the built page in a real Chrome |
 
 ## Run it
 

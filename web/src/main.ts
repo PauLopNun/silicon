@@ -647,6 +647,8 @@ window.addEventListener('keydown', (e) => {
 window.addEventListener('keyup', (e) => {
   if (typed.delete(e.code)) sendKeys();
 });
+// Out of sight, the clock stands still; see `ToWorker`.
+document.addEventListener('visibilitychange', () => send({ type: 'visible', visible: !document.hidden }));
 window.addEventListener('blur', () => {
   if (typed.size + touched.size > 0) {
     typed.clear();

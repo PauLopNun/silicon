@@ -48,6 +48,7 @@ import { ADVANCE, buildLabels, Glyphs, writeValue } from './labels';
 import { GATE_TOP, layoutScene, type Hints, type Rect, type SceneLayout } from './layout';
 import { createLod, focusModule, lodRange, updateLod, type Lod } from './lod';
 import { pick, type Hit } from './pick';
+import { pixelRatioFor } from './pixels';
 import { planReplay } from './replay';
 import { routeWires, type Routing } from './route';
 import { buildTree, type ModuleTree } from './tree';
@@ -739,6 +740,8 @@ export class SceneView {
   readonly lod: Lod;
   /** Size of the picture in CSS pixels. */
   viewport: Viewport = { width: 1, height: 1 };
+  /** Device pixels per CSS pixel the picture is drawn with; see `pixels.ts`. */
+  private pixelRatio = 0;
   camera: Camera = { x: 0, y: 0, distance: 1, azimuth: 0, elevation: Math.PI / 2 };
 
   private readonly renderer: THREE.WebGLRenderer;
@@ -789,7 +792,6 @@ export class SceneView {
     const { tree, layout, routing } = this;
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     if (glow) {
       const bloom = new Bloom(this.renderer);
       if (bloom.supported) this.bloom = bloom;
@@ -1012,8 +1014,12 @@ export class SceneView {
   resize(): boolean {
     const { clientWidth: width, clientHeight: height } = this.canvas;
     if (width === 0 || height === 0) return false;
-    if (width !== this.viewport.width || height !== this.viewport.height) {
+    // (The screen's density changes too: a window moved to another screen, a page zoomed.)
+    const ratio = pixelRatioFor(width, height, devicePixelRatio);
+    if (width !== this.viewport.width || height !== this.viewport.height || ratio !== this.pixelRatio) {
       this.viewport = { width, height };
+      this.pixelRatio = ratio;
+      this.renderer.setPixelRatio(ratio);
       this.renderer.setSize(width, height, false);
       const pixels = this.renderer.getDrawingBufferSize(new THREE.Vector2());
       this.bloom?.setSize(pixels.x, pixels.y);

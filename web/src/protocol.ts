@@ -59,6 +59,13 @@ export type ToWorker =
   | { type: 'keys'; keys: number }
   | { type: 'reset' }
   /**
+   * Whether the page can be seen. While it cannot (another tab is in front,
+   * the window is minimised) the clock stands still: nobody is looking,
+   * and the gate engine would keep a processor busy for nothing. It goes
+   * on from where it was when the page is seen again.
+   */
+  | { type: 'visible'; visible: boolean }
+  /**
    * Put this program in ROM and start it from power-on. A name that is not in
    * the list of programs is ignored: the computer keeps the one it has.
    */
