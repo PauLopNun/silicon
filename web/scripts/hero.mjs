@@ -15,7 +15,7 @@ const page = await browser.page(site.url, { width: 1000, height: 600 });
 const frames = [];
 // Smaller than the window: the README shows it smaller anyway, and the file
 // stays a few megabytes.
-const shoot = async () => frames.push(await page.capture(undefined, 0.7));
+const shoot = async () => frames.push(await page.capture(undefined, 0.6));
 const hover = () => page.evaluate(`document.getElementById('hover').textContent`);
 
 /** Feel over the scene for a closed block with this path, and give its point on the picture. */

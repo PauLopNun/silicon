@@ -70,7 +70,11 @@
       #scene:active, #ram-scene:active { cursor: grabbing; }
       body[data-showing="ram"] #engine-note { display: none; }
       /* What lies over the scene lets the pointer through, except its buttons. */
-      .over { position: absolute; pointer-events: none; }
+      .over { position: absolute; pointer-events: none; z-index: 2; }
+      /* The scene darkens towards its top and bottom edges, under the words that lie over it there. */
+      #main::before, #main::after { content: ""; position: absolute; left: 0; right: 0; z-index: 1; pointer-events: none; }
+      #main::before { top: 0; height: 64px; background: linear-gradient(#05070ccc, #05070c00); }
+      #main::after { bottom: 0; height: 132px; background: linear-gradient(#05070c00, #05070ce0 55%, #05070cf2); }
       .over button { pointer-events: auto; }
       #top { left: 12px; right: 12px; top: 10px; display: flex; align-items: flex-start; gap: 12px; }
       #crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
@@ -110,8 +114,8 @@
       #gate-panel button { min-width: 0; padding: 3px 9px; }
       #gate-name { color: var(--ink); overflow-wrap: anywhere; }
       #gate-panel[data-broken] #gate-name { color: #ff5a4f; }
-      #engine-note { color: var(--dim); max-width: 62ch; text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg); }
-      #gestures { color: var(--dim); opacity: .75; text-shadow: 0 0 6px var(--bg); }
+      #engine-note { color: #8a99b3; max-width: 62ch; text-shadow: 0 0 6px var(--bg), 0 0 2px var(--bg); }
+      #gestures { color: var(--dim); text-shadow: 0 0 6px var(--bg); }
       /* A middling window: the trail of blocks needs the room more than the legend does. */
       @media (max-width: 1240px) { #legend { display: none; } }
       @media (max-width: 760px) {
@@ -128,6 +132,7 @@
         /* Little room over the scene: only where the camera is, and what is pointed at. */
         #legend, #gestures { display: none; }
         #engine-note { font-size: 11px; }
+        #main::after { height: 84px; }
       }
     </style>
   </head>

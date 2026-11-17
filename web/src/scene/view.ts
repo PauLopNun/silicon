@@ -46,8 +46,9 @@ import {
 } from './camera';
 import { ADVANCE, buildLabels, Glyphs, writeValue } from './labels';
 import { GATE_TOP, layoutScene, type Hints, type Rect, type SceneLayout } from './layout';
-import { createLod, lodRange, updateLod, type Lod } from './lod';
+import { createLod, focusModule, lodRange, updateLod, type Lod } from './lod';
 import { pick, type Hit } from './pick';
+import { planReplay } from './replay';
 import { routeWires, type Routing } from './route';
 import { buildTree, type ModuleTree } from './tree';
 
@@ -82,8 +83,6 @@ const CLOCK_WRAP_MS = 600_000;
  * long one gate delay is drawn out to, in seconds.
  */
 const GATE_DELAY_SECONDS = 0.07;
-/** The playback goes on this many gate delays past the deepest gate, while the last pulses fade. */
-const REPLAY_TAIL = 4;
 /** The deepest logic depth the wire texture can hold beside the broken flag. */
 const MAX_DEPTH = 127;
 /** A wire's dashes are this fraction of the size of the module it belongs to, within limits. */
@@ -93,7 +92,7 @@ const DASH_MAX = 14;
 /** How quickly the lights of far-off gates follow their levels: the share of the way covered at each new state. */
 const LIGHT_FOLLOWS = 0.35;
 /** How much of the glow around bright things is added to the picture. */
-const GLOW = 0.9;
+const GLOW = 0.6;
 /** The floor's grid: a line every this many units, a stronger one every fifth. */
 const GRID = 10;
 /** The colour of nothing: the floor far away and the sky. `#05070c`. */
@@ -121,7 +120,7 @@ const COMMON = /* glsl */ `
   uniform highp sampler2D uModules;
   uniform highp sampler2D uWires;
   uniform float uStream; // 1 while the program runs and its wires are being computed
-  uniform float uReplay; // gate delays since the step being played back began, or -1
+  uniform float uReplay; // the logic depth the playback of a step has reached, or -1
 
   // A point given as whole parts and rests, as seen from the eye. Whole
   // minus whole is exact, and so is rest minus rest.
@@ -344,8 +343,8 @@ const GATE_FRAGMENT = /* glsl */ `
     // a gate that has been switching while the program runs, and one whose
     // output has just changed in the step being played back.
     vec3 hot = mix(vec3(1.0, 0.80, 0.45), vec3(0.55, 0.92, 1.0), vKind);
-    float flash = vSince >= 0.0 && vBusy > 0.0 ? exp(-vSince * 0.8) : 0.0;
-    colour += hot * (0.14 * vBusy * uStream + 1.6 * flash) * mix(0.6, 1.0, top);
+    float flash = vSince >= 0.0 && vBusy > 0.0 ? exp(-vSince * 0.45) : 0.0;
+    colour += hot * (0.12 * vBusy * uStream + 0.55 * flash) * mix(0.6, 1.0, top);
     // A broken gate: red, striped across the top, whatever its level.
     if (vBroken > 0.5) {
       float stripe = step(0.5, fract((vTop.x + vTop.y) * 9.0));
@@ -378,6 +377,10 @@ const LIGHT_VERTEX = /* glsl */ `
     float hidden = 1.0 - state.r * state.g;
     WireState output_ = wireState(aGate.y);
     float light = output_.light * 0.26 + output_.busy * uStream * 0.9;
+    // In a step played back, the light of a gate that changed flares when
+    // its turn comes: a closed block shows the change passing through it.
+    float since = uReplay - output_.depth;
+    if (uReplay >= 0.0 && since >= 0.0 && output_.busy > 0.0) light += 1.5 * exp(-since * 0.45);
     if (hidden < 0.02 || light < 0.004) { gl_Position = NOWHERE; return; }
     vec3 middle = fromEye(aAt, ${GATE_TOP});
     // Never smaller than a pixel or so across, or it would shimmer.
@@ -419,15 +422,10 @@ const WIRE_VERTEX = /* glsl */ `
   varying float vAlpha;
   varying vec2 vAlong;
   varying float vPhase;
+  varying float vWide;
   void main() {
     vec4 state = moduleState(aWire.w);
-    // A module's wires appear as its lid fades, and fall back to a faint
-    // trace once the camera goes into one of its parts (alpha channel):
-    // there the wires inside that part are what matters, and the ones
-    // passing over it would hide it.
-    float alpha = state.r * state.g * mix(1.0, ${WIRE_FADED}, state.a);
-    if (alpha < 0.01) { gl_Position = NOWHERE; return; }
-    vAlpha = alpha;
+    if (state.r * state.g < 0.01) { gl_Position = NOWHERE; return; }
     vec3 a = fromEye(aA, aWire.x);
     vec3 b = fromEye(aB, aWire.y);
     vec3 along = normalize(b - a);
@@ -437,7 +435,19 @@ const WIRE_VERTEX = /* glsl */ `
     float size = length(across);
     across = size > 1e-6 ? across / size : vec3(0.0);
     // Never thinner than about a pixel, or it would break up into dots.
-    float least = 0.6 * -(uView * here).z / uFocal;
+    float least = 0.6 * max(-(uView * here).z, 1e-6) / uFocal;
+    // Half the wire's true width, in pixels.
+    vWide = ${WIRE_HALF} * 0.6 / least;
+    // A module's wires appear as its lid fades, and fall back to a faint
+    // trace once the camera goes into one of its parts (alpha channel):
+    // there the wires inside that part are what matters, and the ones
+    // passing over it would hide it. The nearest of them, which pass
+    // between the eye and that part and would be wide bars across the
+    // picture, go altogether.
+    float trace = ${WIRE_FADED} * (1.0 - smoothstep(1.2, 4.5, vWide));
+    float alpha = state.r * state.g * mix(1.0, trace, state.a);
+    if (alpha < 0.004) { gl_Position = NOWHERE; return; }
+    vAlpha = alpha;
     float halfWidth = max(${WIRE_HALF}, least);
     here += across * halfWidth * position.y + along * halfWidth * (position.x * 2.0 - 1.0);
     gl_Position = uProj * vec4(uView * here, 1.0);
@@ -462,6 +472,7 @@ const WIRE_FRAGMENT = /* glsl */ `
   varying float vAlpha;
   varying vec2 vAlong;
   varying float vPhase;
+  varying float vWide;
   const vec3 HOT = vec3(1.0, 0.80, 0.46);
   void main() {
     bool driven = vAlong.x >= 0.0;
@@ -486,21 +497,24 @@ const WIRE_FRAGMENT = /* glsl */ `
       // with a tail behind it, as bright as the wire has been busy.
       float along = fract(vAlong.x - uTime * ${STREAM_HZ} + vPhase);
       float dash = along * along * along * (1.0 - smoothstep(0.86, 1.0, along));
-      light += 1.7 * dash * vBusy * uStream;
+      light += 1.5 * dash * vBusy * uStream;
       // A step played back: one pulse runs from the driving gate to the
       // farthest gate it feeds during the gate delay after the driver
       // changed, and what it has passed fades over the next two.
       if (replay && since >= 0.0 && vBusy > 0.0) {
         float behind = since - vAlong.y;
-        light += 3.2 * step(0.0, behind) * exp(-behind * 3.5) * (1.0 - smoothstep(1.0, 3.0, since));
+        light += 2.0 * step(0.0, behind) * exp(-behind * 1.1) * (1.0 - smoothstep(2.5, 6.0, since));
       }
     } else if (replay && since >= 0.0 && vBusy > 0.0) {
       // Driven from outside: there is no way along it to follow. It lights
       // up whole when its turn comes.
-      light += 2.0 * exp(-since * 1.2);
+      light += 1.6 * exp(-since * 0.7);
     }
-    colour += HOT * light * mix(0.5, 1.0, vCover);
-    gl_FragColor = vec4(stale(colour), vAlpha);
+    // A wire seen from close covers many pixels, and so would its light: it
+    // is given off per length of wire, not per pixel of picture.
+    colour += HOT * light * mix(0.5, 1.0, vCover) * mix(1.0, 0.24, smoothstep(1.5, 9.0, vWide));
+    // A wire thinner than the pixel-wide ribbon drawn for it covers a part of it only.
+    gl_FragColor = vec4(stale(colour), vAlpha * mix(0.55, 1.0, vCover));
   }
 `;
 
@@ -562,6 +576,9 @@ const GLYPH_VERTEX = /* glsl */ `
   void main() {
     vec4 state = moduleState(aGlyph.w);
     float alpha = (aStyle.x < 0.5 ? 1.0 - state.r : state.r) * state.g;
+    // The name across the whole scene would lie over everything in it while
+    // its lid is nearly gone: it goes sooner than the lid does.
+    if (aStyle.x < 0.5 && aGlyph.w < 0.5) alpha *= alpha * alpha;
     vec3 seen = uView * (fromEye(aAt, aGlyph.x) + vec3(position.x * ${ADVANCE}, position.y, 0.0) * aGlyph.y);
     // Letters too small to read are not drawn: they would only be noise.
     alpha *= smoothstep(4.0, 7.0, aGlyph.y * uFocal / max(-seen.z, 1e-6));
@@ -587,7 +604,11 @@ const GLYPH_FRAGMENT = /* glsl */ `
     float sharp = clamp((cover - 0.5) / max(fwidth(cover), 1e-4) + 0.5, 0.0, 1.0);
     cover = mix(cover, sharp, clamp(1.0 / max(texels, 1e-4) - 0.75, 0.0, 1.0));
     vec3 ink = vInk < 0.5 ? vec3(0.79, 0.84, 0.91) : vInk < 1.5 ? vec3(0.42, 0.48, 0.57) : vec3(1.0, 0.70, 0.28);
-    gl_FragColor = vec4(ink, cover * vAlpha);
+    // A shadow around each letter, from a smaller and so softer copy of the
+    // sheet, keeps a name readable where bright wires pass under it.
+    float shadow = smoothstep(0.02, 0.45, texture2D(uGlyphs, vUv, 2.6).r) * 0.8;
+    float alpha = max(cover, shadow);
+    gl_FragColor = vec4(ink * (cover / max(alpha, 1e-4)), alpha * vAlpha);
   }
 `;
 
@@ -739,8 +760,11 @@ export class SceneView {
   private streaming = false;
   /** When the step being played back began (as `performance.now()`), or -1. */
   private replayStart = -1;
-  /** Gate delays the playback of a step lasts. */
-  private readonly replayLength: number;
+  /** The logic depth at which the playback begins and the one at which it is over; see `replay.ts`. */
+  private replayFrom = 0;
+  private replayUntil = 0;
+  /** Per gate: its logic depth, as the wire texture holds it. */
+  private readonly depthOfGate: Uint8Array;
 
   /**
    * @param glow draw what gives off light with a glow around it, where the
@@ -776,13 +800,12 @@ export class SceneView {
     this.outputOfGate = new Uint32Array(tree.gateCount);
     // The logic depth of the gate driving each wire never changes: it is
     // written once. What nothing here drives is at depth 0.
-    let deepest = 0;
+    this.depthOfGate = new Uint8Array(tree.gateCount);
     for (let g = 0; g < tree.gateCount; g++) {
       const depth = Math.min(MAX_DEPTH, net.levels[g]!);
       this.wires.data[net.gates[g * GATE_FIELDS + 3]! * 4 + 3] = depth;
-      deepest = Math.max(deepest, depth);
+      this.depthOfGate[g] = depth;
     }
-    this.replayLength = deepest + REPLAY_TAIL;
     const sheet = glyphSheet();
     sheet.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
 
@@ -1022,6 +1045,13 @@ export class SceneView {
       data[w * 4 + 1] = activity[w]!;
     }
     this.replayStart = how.step ? performance.now() : -1;
+    if (how.step) {
+      // From where the camera is: see `replay.ts`.
+      const focus = focusModule(this.tree, this.layout, this.lod, this.camera.x, this.camera.y);
+      const plan = planReplay(this.tree, this.depthOfGate, this.outputOfGate, activity, focus);
+      this.replayFrom = plan.from;
+      this.replayUntil = plan.until;
+    }
 
     // How busy each module is: the mean activity of the wires driven in it
     // and in everything below it.
@@ -1108,8 +1138,8 @@ export class SceneView {
     u.uTime!.value = (now % CLOCK_WRAP_MS) / 1000;
     if (this.replayStart >= 0) {
       // (A picture's time can be a moment before the step arrived.)
-      const delays = Math.max(0, now - this.replayStart) / 1000 / GATE_DELAY_SECONDS;
-      if (delays > this.replayLength) this.replayStart = -1;
+      const delays = this.replayFrom + Math.max(0, now - this.replayStart) / 1000 / GATE_DELAY_SECONDS;
+      if (delays > this.replayUntil) this.replayStart = -1;
       u.uReplay!.value = this.replayStart >= 0 ? delays : -1;
     } else {
       u.uReplay!.value = -1;

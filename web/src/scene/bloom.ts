@@ -103,9 +103,14 @@ const COMPOSE = /* glsl */ `
     // The corners a little darker, which draws the eye to the middle.
     vec2 fromMiddle = vUv - 0.5;
     colour *= 1.0 - 0.38 * smoothstep(0.25, 0.85, dot(fromMiddle, fromMiddle) * 2.0);
-    // Dark, smooth gradients show steps in eight bits: a grain of noise
-    // smaller than one step hides them.
-    float grain = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+    // Dark, smooth gradients show steps in eight bits: a grain smaller than
+    // one step hides them. An ordered grain (Bayer's four-by-four pattern)
+    // and not a random one: it hides the steps as well, and a picture of
+    // the page saved as a file is half the size, because flat parts of it
+    // repeat every four pixels.
+    const float BAYER[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    ivec2 cell = ivec2(gl_FragCoord.xy) & 3;
+    float grain = (BAYER[cell.x + cell.y * 4] + 0.5) / 16.0;
     gl_FragColor = vec4(colour + (grain - 0.5) / 255.0, 1.0);
   }
 `;

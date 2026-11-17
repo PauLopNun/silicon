@@ -271,7 +271,9 @@ only `view.ts` touches WebGL.
 | `labels.ts` | names, gate counts and register values as glyph instances |
 | `navigator.ts` | pointer, wheel, touch and keys to camera movements |
 | `policy.ts` | which engine the view asks for |
-| `view.ts` | six instanced draw calls and two state textures |
+| `replay.ts` | where the playback of a single step begins and ends, in logic depth |
+| `bloom.ts` | the glow: whatever a shader drew brighter than white, blurred into a halo |
+| `view.ts` | ten draw calls and two state textures |
 
 - **Level of detail by projected size**, continuous: a module's lid fades as
   it grows on screen and its parts show through; nothing pops
@@ -290,8 +292,16 @@ only `view.ts` touches WebGL.
   still visible inside it, and fade once the camera goes into one of its
   parts), letters. The camera never goes below the floor, so lower is
   always behind.
-- Not built: bloom, travelling pulses on wires, signed-distance text (a
-  glyph sheet with mipmaps and a sharpening step is used instead).
+- **Light is a fact about the simulation**
+  ([ADR 0016](adr/0016-light-is-a-fact-about-the-simulation.md)). What
+  gives off light is drawn brighter than white and glows by that excess
+  alone. A busy wire carries dashes that move away from the gate driving
+  it; a closed block lets the lights of its gates through. From afar, on
+  `auto`, 256 clock cycles of every frame are computed on the gates so that
+  those lights are live. A single step is played back in order of logic
+  depth, beginning where the camera is.
+- Not built: signed-distance text (a glyph sheet with mipmaps, a sharpening
+  step and a shadow is used instead).
 
 ## 6½. Learning tools
 

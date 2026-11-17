@@ -19,7 +19,9 @@ own microcode; when you break a gate, the game you are playing breaks.
 - **Fly into the hardware.** From the whole CPU down to the pins of a single
   gate, blocks open as you approach and close as you leave, with no level
   switches and no popping. Every wire is drawn, routed at the height of the
-  module it belongs to, and glows with how busy it has been.
+  module it belongs to. A busy wire glows and carries pulses that move the
+  way its signal goes, away from the gate that drives it; a closed block
+  lets the lights of its gates through, like a city at night.
 - **Play the game on the gates.** At a distance the program runs on a fast
   model of the CPU at 4 MHz; as soon as gates are in sight the page hands the
   CPU over to the gate-level engine, mid-instruction, and every NAND is
@@ -28,7 +30,8 @@ own microcode; when you break a gate, the game you are playing breaks.
 - **Follow one instruction.** *Explain* pauses the machine and shows, for each
   clock cycle, the instruction, its microcode step, what it does with
   memory, the blocks it sets to work, and every control signal with its
-  meaning.
+  meaning. Each step is played back in the scene in the order the logic
+  settles: you watch a carry ripple through the adder, gate by gate.
 - **Break a gate.** Click any gate and stick its output at 0 or 1, as chip
   testers do. One stuck NAND in the ALU's adder is enough to wreck the maze.
 - **See how memory works.** The computer's 64 KiB are an array, but a small
@@ -37,9 +40,13 @@ own microcode; when you break a gate, the game you are playing breaks.
 - **Take the tour.** Nine steps from one NAND gate to a running program; the
   camera flies to each part as it is explained.
 
-| One stuck gate | Memory made of gates | The guided tour |
-|---|---|---|
-| ![A NAND gate of the ALU's adder stuck at 1, shown in red, and the maze on the computer's screen drawn wrong because of it](docs/media/m5-broken-gate.png) | ![A memory of eight four-bit words made of gates, with its address decoder and read multiplexer, and a panel to write and read it](docs/media/m5-ram-of-gates.png) | ![A step of the tour explaining a full adder beside its nine NAND gates](docs/media/m5-tour.png) |
+| One stuck gate | One clock cycle, played back |
+|---|---|
+| ![A NAND gate of the ALU's adder stuck at 1, shown in red, and the maze on the computer's screen drawn wrong because of it](docs/media/m5-broken-gate.png) | ![The 16-bit adder that works out the next address, with the clock stopped: the first full adders lit as the change of one clock cycle passes through them](docs/media/m6-step.png) |
+
+| Memory made of gates | The guided tour |
+|---|---|
+| ![A memory of eight four-bit words made of gates, with its address decoder and read multiplexer, and a panel to write and read it](docs/media/m5-ram-of-gates.png) | ![A step of the tour explaining a full adder beside its nine NAND gates](docs/media/m5-tour.png) |
 
 ## How it is built
 
@@ -55,7 +62,7 @@ programs/*.c, *.asm ──cc──► assembly ──asm──► ROM        (cr
                                │ WebAssembly, in a Web Worker  (crates/wasm)
                       ┌────────▼────────┐  wire levels,  ┌───────────────────┐
                       │ simulation      │──activity,────►│ Three.js scene,   │
-                      │ worker          │  registers     │ six draw calls    │
+                      │ worker          │  registers     │ ten draw calls    │
                       └─────────────────┘                └───────────────────┘
 ```
 
@@ -107,8 +114,8 @@ programs/*.c, *.asm ──cc──► assembly ──asm──► ROM        (cr
 | Gate engine in WebAssembly | ~205 k cycles/s, counting every wire's changes |
 | The maze game | 45 frames/s at the nominal 4 MHz; 2–3 frames/s on the gates |
 | The game's ROM | 4.8 KiB of 32 |
-| A picture of the scene | 0.1–0.2 ms of main-thread time |
-| Tests | 295 in Rust, 128 in Vitest, 15 checks of the built page in a real Chrome |
+| A picture of the scene | 0.2 ms of main-thread time; 2.7 ms of the graphics card's with the glow (RTX 5060 Ti, 1280×800) |
+| Tests | 297 in Rust, 144 in Vitest, 17 checks of the built page in a real Chrome |
 
 ## Run it
 

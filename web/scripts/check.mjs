@@ -46,6 +46,25 @@ async function sceneMiddle(page) {
   );
 }
 
+/** The scene's rectangle on the page, to take pictures of it alone. */
+async function sceneBox(page) {
+  return page.evaluate(
+    `(() => { const r = document.getElementById('scene').getBoundingClientRect(); return { x: r.x, y: r.y, width: r.width, height: r.height }; })()`,
+  );
+}
+
+/** Wait until two pictures of the scene taken a moment apart are the same, and give that picture. */
+async function still(page, clip, what) {
+  let last = await page.capture(clip);
+  for (let i = 0; i < 40; i++) {
+    await page.sleep(250);
+    const now = await page.capture(clip);
+    if (now.equals(last)) return now;
+    last = now;
+  }
+  throw new Error(`the scene never stood still: ${what}`);
+}
+
 // ── the computer ──
 
 await check('every program in the menu runs and is the one the menu says', '', async (page) => {
@@ -270,6 +289,47 @@ await check('a link can ask for an engine, and gets it whatever the view', '?eng
   await page.evaluate(`document.getElementById('use-auto').click()`);
   await page.until(`${engine} === 'fast'`, 8000, 'the fast engine back on auto');
   expect((await page.evaluate('location.search')) === '', 'the link still names an engine');
+});
+
+await check('from afar a sample of the cycles moves on the wires; the fast engine alone computes no gate', '', async (page) => {
+  await page.until(`document.body.dataset.wires === 'sample' && ${engine} === 'fast'`, 8000, 'a sample beside the fast engine');
+  await page.until(`${text('speed')}.endsWith('MHz')`, 5000, 'a clock in megahertz');
+  const clip = await sceneBox(page);
+  const one = await page.capture(clip);
+  await page.sleep(400);
+  expect(!one.equals(await page.capture(clip)), 'nothing moves on the wires of a running program');
+  // The fast engine alone computes no gate, and the page says so. (The
+  // picture does not stand still for it: the registers' values, which come
+  // from the fast engine, are written on their blocks.)
+  await page.evaluate(`document.getElementById('use-fast').click()`);
+  await page.until(`document.body.dataset.wires === 'old'`, 8000, 'the gates to be left alone');
+  await page.until(`${text('engine-note')}.includes('the gates are not computed')`, 5000, 'the page to say so');
+  expect((await page.evaluate(engine)) === 'fast', 'the fast engine was left');
+});
+
+await check('a single step is played back at once where the camera is, and ends', '?at=cpu/agu/adder16/fa0', async (page) => {
+  await page.until(`document.body.dataset.focus === 'cpu/agu/adder16/fa0'`, 8000, 'the camera at fa0');
+  await page.evaluate(`document.getElementById('explain-start').click()`);
+  await page.until(`${text('speed')} === 'paused' && ${engine} === 'gate'`, 8000, 'explain mode');
+  const clip = await sceneBox(page);
+  // This adder works out the next address: its first bit changes in most
+  // cycles, though not in every one.
+  let played = false;
+  for (let step = 0; step < 8 && !played; step++) {
+    await page.until(`!('replay' in document.body.dataset)`, 20000, 'the playback before to end');
+    const before = await still(page, clip, 'with the clock stopped');
+    await page.evaluate(`document.getElementById('step').click()`);
+    await page.until(`'replay' in document.body.dataset`, 4000, 'a playback to begin');
+    // These gates are some thirty gates deep in the CPU. Played from depth
+    // 0, which was the fault, nothing here would change for seconds.
+    for (let look = 0; look < 5 && !played; look++) {
+      await page.sleep(200);
+      played = !before.equals(await page.capture(clip));
+    }
+  }
+  expect(played, 'eight steps, and none showed anything in the first second of its playback');
+  await page.until(`!('replay' in document.body.dataset)`, 20000, 'the playback to end');
+  await still(page, clip, 'after the playback');
 });
 
 await check('a phone-sized window has everything and nothing sideways', '', async (page) => {

@@ -10,20 +10,53 @@ Read this and `CLAUDE.md` at the start of every session.
 | M1 — ISA and hardware design | **done** (2026-11-13) |
 | M2 — Simulation engines | **done** (2026-11-13) |
 | M3 — Toolchain and programs | **done** (2026-11-14) |
-| M4 — 3D visualization | **in progress** |
+| M4 — 3D visualization | **done** (2026-11-17), but for browsers other than Chrome: see the launch checklist |
 | M5 — Learning tools | **done** (2026-11-15) |
 | M6 — Polish and launch | **in progress** |
 
-Everything is on `main` and pushed (2026-11-15).
+The look of the scene is committed on `main` (2026-11-17), **not pushed**.
 
-## M6 — where it stands (2026-11-15)
+## M6 — where it stands (2026-11-17)
 
 Done: the README rewritten around the finished project, opening on an
 animation of the real page (`docs/media/zoom.png`, made by
 `web/scripts/hero.mjs`); ADR 0015; a Pages workflow ready to publish the
 live demo, run by hand only (`.github/workflows/pages.yml`).
 
-In progress (2026-11-15), committed but **not finished**: the look of the scene.
+Done (2026-11-17): **the look of the scene**, ADR 0016.
+
+- **The playback of a single step works.** It was never broken in the
+  shaders: it began at logic depth 0 for the whole CPU, and the address
+  adder is some thirty gates deep, so the picture stood still for 2.5 s
+  after every step; each flash then lasted a few hundredths of a second,
+  and closed blocks showed nothing at all. Now it begins one gate delay
+  before the first change in the module the camera is in
+  (`scene/replay.ts`, with `replay.test.ts` as the regression test), pulses
+  and flashes last several gate delays, and the lights under closed lids
+  flare in the same order.
+- **Light toned down and tidied.** A wire's light falls with its width on
+  screen (from close, wires were white bars); the halo is weaker; the
+  playback's flashes are about a third of what they were. The wires of the
+  modules the camera has gone into no longer cross the picture as
+  translucent bars: the nearest fade out altogether. Names carry a dark
+  shadow and stay readable over bright wires. The name of the whole scene
+  no longer ghosts across the memory of gates. The words over the scene
+  have a darkened edge under them. The grain is ordered, not random.
+- **Page checks** (17 in all): a sample moves on the wires from afar and
+  the fast engine alone computes no gate; a step is played back at once
+  where the camera is and comes to an end. Writing the first of them
+  showed that the scene is never still while the program runs even with
+  no gate computed, rightly: the registers' values are written on their
+  blocks.
+- README, ARCHITECTURE §6 and the pictures in `docs/media` show the scene as
+  it is now. `web/scripts/shots.mjs` retakes the stills, `hero.mjs` the
+  animation (6.3 MB at 600×360; the glow makes every frame compress worse).
+- Measured (`frametime.mjs`, RTX 5060 Ti, 1280×800): 2.3–2.7 ms of the
+  graphics card a picture with the glow, 0.2 ms of the main thread.
+- Tests: Rust 297, Vitest 144, page checks 17; fmt, clippy, typecheck clean.
+
+What follows is the note of 2026-11-15, kept for the record of what was
+tried:
 
 - Done and checked by eye in headless Chrome: a glow around what gives off
   light (`scene/bloom.ts`, off with `?glow=off`); the lights of the gates
@@ -35,27 +68,24 @@ In progress (2026-11-15), committed but **not finished**: the look of the scene.
   engine while the clock is stopped; the graphics card's time per picture
   measured with a timer query (`frametime.mjs`: about 2.4 ms with the glow
   at 1280×800 on an RTX 5060 Ti).
-- **Not working yet: the playback of a single step.** After Next cycle the
-  page reports a playback in progress, but pictures taken during it show no
-  pulse and no flash in `cpu/agu/adder16`, where the step certainly changes
-  wires. Cause not found. Start there: `setWires` with `step`, `uReplay`,
-  and `levelShown` in `scene/view.ts`.
-- Still to do after that: a page check for the playback and for the sample;
-  ADR 0016 for these decisions; README, ARCHITECTURE and the animation and
-  screenshots in `docs/media` brought up to date with the new look.
+- ~~Not working yet: the playback of a single step~~, and ~~a page check
+  for the playback and for the sample; ADR 0016; README, ARCHITECTURE and
+  `docs/media` brought up to date~~: all done on 2026-11-17, above.
 - Seen while measuring: the gate engine reached about 95 kHz in the page
   where it reached 217 kHz the same morning. The commit before this one
   measures the same 95 kHz back to back, and `pnpm bench` still gives
   0.20 M cycles/s, so it is the machine's state (headless Chrome's worker),
   not the code.
 
-Launch checklist, in order:
+Launch checklist, in order. None of it can be done from a script; it needs
+a person:
 
 1. Check by hand in a real window: Chrome, Firefox, Safari, and a phone
    (touch: drag, pinch, the computer's keys). Not done: only headless Chrome
-   so far.
-2. Measure the graphics card's share of a frame in a real window, zoomed out
-   over the whole CPU (the costliest view).
+   so far, on this machine's graphics card and in software.
+2. ~~Measure the graphics card's share of a frame~~: done with a timer
+   query, above. Worth a look by eye on a laptop's integrated graphics;
+   `?glow=off` is the way out if it is heavy there.
 3. Make the repository public; turn Pages on and run the Pages workflow;
    add the push trigger; put the demo's link at the top of the README.
 4. Repository description, topics and social preview image.
